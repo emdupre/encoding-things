@@ -24,16 +24,17 @@ def _load_stim_arrays(data_dir):
     return clip_feats, clip_fnames
 
 
-def _load_brain_arrays(sub_name, roi, data_dir):
+def _load_brain_arrays(sub_name, roi, space, data_dir):
     """
     Parameters
     ----------
     sub_name : str
     roi : str
+    space : str
     data_dir : str
     """
     annot_fname = f"{sub_name}_task-things_desc-perTrial_annotation.tsv"
-    beta_fname = f"{sub_name}_task-things_space-T1w_model-fitHrfGLMdenoiseRR_stats-trialBetas_desc-zscore_statseries.h5"
+    beta_fname = f"{sub_name}_task-things_space-{space}_model-fitHrfGLMdenoiseRR_stat-trialBetas_desc-zscore_statseries.h5"
 
     beta_h5 = h5py.File(Path(data_dir, "betas", beta_fname), "r")
     mask = nib.nifti1.Nifti1Image(
@@ -43,7 +44,7 @@ def _load_brain_arrays(sub_name, roi, data_dir):
     if roi is not None:
 
         roi_fname = (
-            f"{sub_name}_task-floc_space-T1w*_roi-{roi}_*_desc-smooth_mask.nii.gz"
+            f"{sub_name}_task-floc_space-{space}_roi-{roi}_*_desc-smooth_mask.nii.gz"
         )
         roi_nii = nib.load(
             next(Path(data_dir, "rois", sub_name).glob(roi_fname))
@@ -55,7 +56,7 @@ def _load_brain_arrays(sub_name, roi, data_dir):
         masker = maskers.NiftiMasker(mask_img=roi_nii).fit()
 
     annot_df = pd.read_csv(Path(data_dir, "annot", annot_fname), sep="\t")
-    annot_df = annot_df.loc[annot_df["exclude_session"] == False]
+    # annot_df = annot_df.loc[annot_df["exclude_session"] == False]
     annot_df = annot_df.loc[annot_df["atypical"] == False]
 
     # subset_idx = None
@@ -184,16 +185,17 @@ def _category_mapping(sub_name, data_dir):
     return cat_dict
 
 
-def gen_inputs(sub_name, roi, data_dir):
+def gen_inputs(sub_name, roi, space, data_dir):
     """
     Parameters
     ----------
     sub_name : str
     roi : str
+    space : str
     data_dir : str
     """
     y_vals, stim_names, session_labels, mask = _load_brain_arrays(
-        sub_name, roi, data_dir
+        sub_name, roi, space, data_dir
     )
     clip_feats, clip_fnames = _load_stim_arrays(data_dir)
 
@@ -214,11 +216,17 @@ def gen_inputs(sub_name, roi, data_dir):
 @click.option("--sub_name", default="sub-01", help="Subject name.")
 @click.option("--roi", default=None, help="Region-of-interest")
 @click.option(
+    "--space",
+    default="T1w",
+    help="Space in which brain responses were registered during preprocessing. Must be in ['MNI152NLin2009cAsym', 'T1w']",
+)
+@click.option(
     "--data_dir",
-    default="/home/emdupre/links/projects/rrg-pbellec/emdupre/things.betas",
+    # default="/home/emdupre/links/projects/rrg-pbellec/emdupre/things.betas",
+    default="/Users/emdupre/Desktop/things-encode/",
     help="Data directory.",
 )
-def main(sub_name, roi, data_dir):
+def main(sub_name, roi, space, data_dir):
     """
     Create trialwise inputs for voxelwise encoding models on THINGS data using
     existing CLIP embeddings (previously generated using thingsvision).
@@ -233,46 +241,81 @@ def main(sub_name, roi, data_dir):
         err_msg = f"Unrecognized subject {sub_name}"
         raise ValueError(err_msg)
 
+    if space not in ["MNI152NLin2009cAsym", "T1w"]:
+        err_msg = f"Unrecognized space {space}"
+        raise ValueError(err_msg)
+
     stim_vec, y_matrix, y_sessions, X_matrix, mask, cat_dict = gen_inputs(
-        sub_name, roi, data_dir
+        sub_name, roi, space, data_dir
     )
 
-    out_stim = Path(data_dir, "encoding-inputs", f"{sub_name}_stim_labels.txt")
+    out_stim = Path(
+        data_dir,
+        "encoding-inputs",
+        space,
+        f"{sub_name}_stim_labels.txt",
+    )
     if not out_stim.is_file():
         out_stim.parent.mkdir(exist_ok=True, parents=True)
         np.savetxt(out_stim, stim_vec, fmt="%s")
 
-    out_y_sessions = Path(data_dir, "encoding-inputs", f"{sub_name}_session_labels.txt")
+    out_y_sessions = Path(
+        data_dir,
+        "encoding-inputs",
+        space,
+        f"{sub_name}_session_labels.txt",
+    )
     if not out_y_sessions.is_file():
         out_y_sessions.parent.mkdir(exist_ok=True, parents=True)
         np.savetxt(out_y_sessions, y_sessions, fmt="%s")
 
-    out_X_matrix = Path(data_dir, "encoding-inputs", f"{sub_name}_stim_features.npy")
+    out_X_matrix = Path(
+        data_dir,
+        "encoding-inputs",
+        space,
+        f"{sub_name}_stim_features.npy",
+    )
     if not out_X_matrix.is_file():
         out_X_matrix.parent.mkdir(exist_ok=True, parents=True)
         np.save(out_X_matrix, X_matrix)
 
     if roi is not None:
         out_y_matrix = Path(
-            data_dir, "encoding-inputs", f"{sub_name}_{roi}_brain_responses.npy"
+            data_dir,
+            "encoding-inputs",
+            space,
+            f"{sub_name}_roi-{roi}_space-{space}_brain_responses.npy",
         )
         if not out_y_matrix.is_file():
             out_y_matrix.parent.mkdir(exist_ok=True, parents=True)
             np.save(out_y_matrix, y_matrix)
     else:
         out_y_matrix = Path(
-            data_dir, "encoding-inputs", f"{sub_name}_brain_responses.npy"
+            data_dir,
+            "encoding-inputs",
+            space,
+            f"{sub_name}_space-{space}_brain_responses.npy",
         )
         if not out_y_matrix.is_file():
             out_y_matrix.parent.mkdir(exist_ok=True, parents=True)
             np.save(out_y_matrix, y_matrix)
 
-    out_mask = Path(data_dir, "encoding-inputs", f"{sub_name}_brain_mask.nii.gz")
+    out_mask = Path(
+        data_dir,
+        "encoding-inputs",
+        space,
+        f"{sub_name}_space-{space}_brain_mask.nii.gz",
+    )
     if not out_mask.is_file():
         out_mask.parent.mkdir(exist_ok=True, parents=True)
         nib.save(mask, out_mask)
 
-    out_dict = Path(data_dir, "encoding-inputs", f"{sub_name}_category53_mapping.json")
+    out_dict = Path(
+        data_dir,
+        "encoding-inputs",
+        space,
+        f"{sub_name}_category53_mapping.json",
+    )
     if not out_dict.is_file():
         out_dict.parent.mkdir(exist_ok=True, parents=True)
         with open(out_dict, "w", encoding="utf8") as f:
