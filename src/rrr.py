@@ -18,7 +18,7 @@ class ReducedRankRidgeRegressionCV(base.BaseEstimator):
     alpha_ : ndarray of shape (n_targets,)
         Estimated regularization parameter for each target for the Ridge Regression
 
-    rank_ : int
+    ranks_ : list of int
         Estimated Optimal Reduced Rank for the Projection of the Ridge Prediction
 
     best_score_ : float

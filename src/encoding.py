@@ -628,17 +628,6 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine):
         )
         best_alphas = [estim.alpha_ for estim in scores["estimator"]]
         best_scores = [estim.best_score_ for estim in scores["estimator"]]
-    elif engine == "rrr":
-        scores = ridgeCV_rrr(
-            X_matrix,
-            y_matrix,
-            ranks=[2**i for i in range(10)],
-            groups=groups,
-            scoring=scoring,
-            cv_strategy=cv_strategy,
-        )
-        best_alphas = [estim.alpha_ for estim in scores["estimator"]]
-        best_scores = [estim.best_score_ for estim in scores["estimator"]]
     elif engine == "himalaya":
         scores = ridgeCV_himalaya(
             X_matrix,
