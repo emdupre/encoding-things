@@ -430,7 +430,7 @@ def ridgeCV_himalaya(
     else:
         if cv_strategy == "image":
             outer_cv = GroupKFold(shuffle=True, random_state=0)
-        elif cv_strategy == "multilabel":
+        elif cv_strategy in ["category", "multilabel"]:
             outer_cv = LeaveOneGroupOut()
 
     alphas = np.logspace(1, 20, 20)
@@ -492,7 +492,12 @@ def ridgeCV_himalaya(
     help="Engine for running encoding analyses. Must be either 'sklearn' "
     "'rrr' or 'himalaya'. Note only the latter is GPU compatiable.",
 )
-def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine):
+@click.option(
+    "--space",
+    default="T1w",
+    help="Space in which to run encoding analyses. Must be either 'MNI152NLin2009cAsym' or 'T1w'.",
+)
+def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, space):
     """ """
     rois = [None, "EBA", "FFA", "OFA", "pSTS", "MPA", "OPA", "PPA"]
     if roi not in rois:
@@ -530,26 +535,35 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine):
     if scoring_metric == "correlation_score":
         scoring = correlation_score
 
-    # TODO: Remove this when tested
-    if roi is not None:
-        raise NotImplementedError
-
     X_matrix = np.load(
-        Path(data_dir, "encoding-inputs", f"{sub_name}_stim_features.npy")
+        Path(data_dir, "encoding-inputs", space, f"{sub_name}_stim_features.npy")
     )
-    mask = nib.load(Path(data_dir, "encoding-inputs", f"{sub_name}_brain_mask.nii.gz"))
+    mask = nib.load(
+        Path(
+            data_dir,
+            "encoding-inputs",
+            space,
+            f"{sub_name}_space-{space}_brain_mask.nii.gz",
+        )
+    )
 
     if roi is not None:
         y_matrix = np.load(
             Path(
                 data_dir,
                 "encoding-inputs",
-                f"{sub_name}_{roi}_brain_responses.npy",
+                space,
+                f"{sub_name}_space-{space}_roi-{roi}_brain_responses.npy",
             )
         )
     else:
         y_matrix = np.load(
-            Path(data_dir, "encoding-inputs", f"{sub_name}_brain_responses.npy")
+            Path(
+                data_dir,
+                "encoding-inputs",
+                space,
+                f"{sub_name}_space-{space}_brain_responses.npy",
+            )
         )
 
     expl_var = explainable_variance(y_matrix)
@@ -562,7 +576,7 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine):
         # and "image" will return `incl_labels` corresponding
         # to image identities (e.g., 'acorn_01b').
         groups = np.loadtxt(
-            Path(data_dir, "encoding-inputs", f"{sub_name}_stim_labels.txt"),
+            Path(data_dir, "encoding-inputs", space, f"{sub_name}_stim_labels.txt"),
             dtype=np.str_,
         )
         if cv_strategy == "category":
@@ -574,6 +588,7 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine):
                 Path(
                     data_dir,
                     "encoding-inputs",
+                    space,
                     f"{sub_name}_category53_mapping.json",
                 )
             ) as f:
@@ -594,7 +609,7 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine):
     ####################################
     # FIXME
     inner_groups = np.loadtxt(
-        Path(data_dir, "encoding-inputs", f"{sub_name}_session_labels.txt"),
+        Path(data_dir, "encoding-inputs", space, f"{sub_name}_session_labels.txt"),
         dtype=np.str_,
     )
     ####################################
@@ -639,17 +654,19 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine):
         best_alphas = [best_alpha_.cpu() for best_alpha_ in scores["best_alphas"]]
         best_scores = [best_score_.cpu() for best_score_ in scores["best_scores"]]
 
+    if roi is None:
+        roi = "wholebrain"
     if average:
         out_file = Path(
             data_dir,
             "encoding-inputs",
-            f"{sub_name}_cv-{cv_strategy}-average_{engine}_scores.pkl",
+            f"{sub_name}_space-{space}_roi-{roi}_cv-{cv_strategy}-average_{engine}_scores.pkl",
         )
     else:
         out_file = Path(
             data_dir,
             "encoding-inputs",
-            f"{sub_name}_cv-{cv_strategy}_{engine}_scores.pkl",
+            f"{sub_name}_space-{space}_roi-{roi}_cv-{cv_strategy}_{engine}_scores.pkl",
         )
 
     if not out_file.is_file():
@@ -665,10 +682,12 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine):
     )
     if average:
         fig_hist.savefig(
-            f"{sub_name}_{cv_strategy}-average_{scoring_metric}_expl_var_hist.png"
+            f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}-average_{scoring_metric}_expl_var_hist.png"
         )
     else:
-        fig_hist.savefig(f"{sub_name}_{cv_strategy}_{scoring_metric}_expl_var_hist.png")
+        fig_hist.savefig(
+            f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}_{scoring_metric}_expl_var_hist.png"
+        )
     plt.close(fig_hist)
 
     fig_alphas, ax = plt.subplots(1, 1)
@@ -678,10 +697,12 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine):
         )
     if average:
         fig_alphas.savefig(
-            f"{sub_name}_{cv_strategy}-average_{scoring_metric}_alphas.png"
+            f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}-average_{scoring_metric}_alphas.png"
         )
     else:
-        fig_alphas.savefig(f"{sub_name}_{cv_strategy}_{scoring_metric}_alphas.png")
+        fig_alphas.savefig(
+            f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}_{scoring_metric}_alphas.png"
+        )
     plt.close(fig_alphas)
 
     plot_flatmap(

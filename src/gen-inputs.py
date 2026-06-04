@@ -1,11 +1,11 @@
 import json
 from pathlib import Path
 
-import h5py
 import click
+import h5py
+import nibabel as nib
 import numpy as np
 import pandas as pd
-import nibabel as nib
 from nilearn import maskers, masking
 
 
@@ -42,13 +42,16 @@ def _load_brain_arrays(sub_name, roi, space, data_dir):
     )
 
     if roi is not None:
-
         roi_fname = (
-            f"{sub_name}_task-floc_space-{space}_roi-{roi}_*_desc-smooth_mask.nii.gz"
+            f"{sub_name}_task-floc_space-{space}*_roi-{roi}_*_desc-smooth_mask.nii.gz"
         )
-        roi_nii = nib.load(
-            next(Path(data_dir, "rois", sub_name).glob(roi_fname))
-        )  # Shape (76, 90, 71)
+        try:
+            roi_nii = nib.load(
+                next(Path(data_dir, "rois", sub_name).glob(roi_fname))
+            )  # Shape (76, 90, 71)
+        except StopIteration:
+            raise FileNotFoundError(f"Could not find ROI file matching {roi_fname}")
+
         # plotting.view_img(roi_nii, bg_img=unmask_beta)
         # FFA ROI raises concern on visual inspection
         # (e.g., left FFA is two disconnected pieces of cortex).
@@ -284,7 +287,7 @@ def main(sub_name, roi, space, data_dir):
             data_dir,
             "encoding-inputs",
             space,
-            f"{sub_name}_roi-{roi}_space-{space}_brain_responses.npy",
+            f"{sub_name}_space-{space}_roi-{roi}_brain_responses.npy",
         )
         if not out_y_matrix.is_file():
             out_y_matrix.parent.mkdir(exist_ok=True, parents=True)
