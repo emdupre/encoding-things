@@ -449,9 +449,6 @@ def ridgeCV_himalaya(
         train_indices.append(train_index)
         test_indices.append(test_index)
 
-        print(X_matrix[train_index].shape)
-        print(y_matrix[train_index].shape)
-
         pl.fit(X_matrix[train_index], y_matrix[train_index])
 
         if scoring is correlation_score:
