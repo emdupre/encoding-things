@@ -370,7 +370,7 @@ def ridgeCV_rrr(
     if groups is None:
         outer_cv = KFold(shuffle=True, random_state=0)
     else:
-        if cv_strategy == "image":
+        if cv_strategy in ["category", "image"]:
             outer_cv = GroupKFold(shuffle=True, random_state=0)
         elif cv_strategy == "multilabel":
             outer_cv = LeaveOneGroupOut()
@@ -526,7 +526,7 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
         err_msg = f"Unrecognized scoring metric {scoring_metric}"
         raise ValueError(err_msg)
 
-    engines = ["himalaya", "sklearn"]
+    engines = ["himalaya", "sklearn", "rrr"]
     if engine not in engines:
         err_msg = f"Unrecognized engine {engine}"
         raise ValueError(err_msg)
@@ -646,7 +646,7 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
         scores = ridgeCV_rrr(
             X_matrix,
             y_matrix,
-            ranks=[2**i for i in range(10)],
+            ranks=[2**i for i in range(8)],
             groups=groups,
             scoring=scoring,
             cv_strategy=cv_strategy,
@@ -661,13 +661,12 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             scoring=scoring,
             cv_strategy=cv_strategy,
         )
-
-    try:
-        best_alphas = [best_alpha_.cpu() for best_alpha_ in scores["best_alphas"]]
-        best_scores = [best_score_.cpu() for best_score_ in scores["best_scores"]]
-    except AttributeError:
-        best_alphas = scores["best_alphas"]
-        best_scores = scores["best_scores"]
+        try:
+            best_alphas = [best_alpha_.cpu() for best_alpha_ in scores["best_alphas"]]
+            best_scores = [best_score_.cpu() for best_score_ in scores["best_scores"]]
+        except AttributeError:
+            best_alphas = scores["best_alphas"]
+            best_scores = scores["best_scores"]
 
     if roi is None:
         roi = "wholebrain"
@@ -692,35 +691,38 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
     # with open(out_file, 'rb') as f:
     #     check = pickle.load(f)
 
-    fig_hist = plot_voxel_hist(
-        sub_name, expl_var, best_scores, scoring_metric=scoring_metric
-    )
-    if average:
-        fig_hist.savefig(
-            f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}-average_{scoring_metric}_expl_var_hist.png"
-        )
-    else:
-        fig_hist.savefig(
-            f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}_{scoring_metric}_expl_var_hist.png"
-        )
-    plt.close(fig_hist)
-
-    fig_alphas, ax = plt.subplots(1, 1)
-    for i, b_alpha in enumerate(best_alphas):
-        plot_alphas_diagnostic(
-            best_alphas=b_alpha, alphas=np.logspace(1, 20, 20), cv_fold=i, ax=ax
-        )
-    if average:
-        fig_alphas.savefig(
-            f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}-average_{scoring_metric}_alphas.png"
-        )
-    else:
-        fig_alphas.savefig(
-            f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}_{scoring_metric}_alphas.png"
-        )
-    plt.close(fig_alphas)
-
     if roi == "wholebrain":
+        # plot histogram of explainable var and scores across cortex
+        fig_hist = plot_voxel_hist(
+            sub_name, expl_var, best_scores, scoring_metric=scoring_metric
+        )
+        if average:
+            fig_hist.savefig(
+                f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}-average_{scoring_metric}_{engine}_expl_var_hist.png"
+            )
+        else:
+            fig_hist.savefig(
+                f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}_{scoring_metric}_{engine}_expl_var_hist.png"
+            )
+        plt.close(fig_hist)
+
+        # plot diagnostic of voxelwise best alphas ; QC for two clear peaks
+        fig_alphas, ax = plt.subplots(1, 1)
+        for i, b_alpha in enumerate(best_alphas):
+            plot_alphas_diagnostic(
+                best_alphas=b_alpha, alphas=np.logspace(1, 20, 20), cv_fold=i, ax=ax
+            )
+        if average:
+            fig_alphas.savefig(
+                f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}-average_{scoring_metric}_{engine}_alphas.png"
+            )
+        else:
+            fig_alphas.savefig(
+                f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}_{scoring_metric}_{engine}_alphas.png"
+            )
+        plt.close(fig_alphas)
+
+        # plot flatmap of scores across cortex
         plot_flatmap(
             best_scores,
             sub_name,
@@ -729,17 +731,22 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             scoring_metric=scoring_metric,
             average=average,
         )
-    else:
-        masker = NiftiMasker(mask_img=roi_mask).fit()
-        fig = plotting.plot_stat_map(
-            masker.inverse_transform(np.mean(best_scores, axis=0)),
-            display_mode="z",
-            cut_coords=1,
-            colorbar=True,
-        )
-        fig.savefig(
-            f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}_{scoring_metric}_statmap.png"
-        )
+    elif roi in ["EBA", "FFA", "OFA", "pSTS", "MPA", "OPA", "PPA"]:
+        # plot stat map of scores across ROI
+        if engine != "rrr":
+            masker = NiftiMasker(mask_img=roi_mask).fit()
+            fig = plotting.plot_stat_map(
+                masker.inverse_transform(np.mean(best_scores, axis=0)),
+                display_mode="z",
+                colorbar=True,
+                symmetric_cbar=False,
+                vmax=0.25,
+                vmin=0,
+                cmap="PuRd",
+            )
+            fig.savefig(
+                f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}_{scoring_metric}_{engine}_statmap.png"
+            )
 
 
 if __name__ == "__main__":

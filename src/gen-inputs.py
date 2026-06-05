@@ -252,7 +252,6 @@ def main(sub_name, roi, space, data_dir):
     stim_vec, y_matrix, y_sessions, X_matrix, mask, cat_dict = gen_inputs(
         sub_name, roi, space, data_dir
     )
-    print(y_matrix.shape)
 
     out_stim = Path(
         data_dir,
