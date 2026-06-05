@@ -82,7 +82,8 @@ def _load_brain_arrays(sub_name, roi, space, data_dir):
                     beta_h5[ses_idx][run_idx]["betas"][trial_idx], mask
                 )  # Shape (76, 90, 71)
                 func_beta = masker.transform(unmask_beta)
-            func_beta = beta_h5[ses_idx][run_idx]["betas"][trial_idx]
+            else:
+                func_beta = beta_h5[ses_idx][run_idx]["betas"][trial_idx]
 
         # run-6, ses-08 of sub-06 is dropped from betas but not from data frame
         # https://github.com/courtois-neuromod/cneuromod-things/tree/main/THINGS
@@ -251,6 +252,7 @@ def main(sub_name, roi, space, data_dir):
     stim_vec, y_matrix, y_sessions, X_matrix, mask, cat_dict = gen_inputs(
         sub_name, roi, space, data_dir
     )
+    print(y_matrix.shape)
 
     out_stim = Path(
         data_dir,
@@ -289,9 +291,6 @@ def main(sub_name, roi, space, data_dir):
             space,
             f"{sub_name}_space-{space}_roi-{roi}_brain_responses.npy",
         )
-        if not out_y_matrix.is_file():
-            out_y_matrix.parent.mkdir(exist_ok=True, parents=True)
-            np.save(out_y_matrix, y_matrix)
     else:
         out_y_matrix = Path(
             data_dir,
@@ -299,9 +298,12 @@ def main(sub_name, roi, space, data_dir):
             space,
             f"{sub_name}_space-{space}_brain_responses.npy",
         )
-        if not out_y_matrix.is_file():
-            out_y_matrix.parent.mkdir(exist_ok=True, parents=True)
-            np.save(out_y_matrix, y_matrix)
+    if not out_y_matrix.is_file():
+        out_y_matrix.parent.mkdir(exist_ok=True, parents=True)
+        np.save(out_y_matrix, y_matrix)
+
+    print(out_y_matrix)
+    print(y_matrix.shape)
 
     out_mask = Path(
         data_dir,

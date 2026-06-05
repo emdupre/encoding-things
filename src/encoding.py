@@ -11,7 +11,8 @@ import numpy as np
 import scipy
 import sklearn
 from himalaya.scoring import correlation_score
-from nilearn import masking
+from nilearn import masking, plotting
+from nilearn.maskers import NiftiMasker
 from sklearn.metrics import make_scorer, r2_score
 from sklearn.model_selection import (
     GroupKFold,
@@ -428,9 +429,9 @@ def ridgeCV_himalaya(
     if groups is None:
         outer_cv = KFold(shuffle=True, random_state=0)
     else:
-        if cv_strategy == "image":
+        if cv_strategy in ["category", "image"]:
             outer_cv = GroupKFold(shuffle=True, random_state=0)
-        elif cv_strategy in ["category", "multilabel"]:
+        elif cv_strategy == "multilabel":
             outer_cv = LeaveOneGroupOut()
 
     alphas = np.logspace(1, 20, 20)
@@ -447,6 +448,9 @@ def ridgeCV_himalaya(
     for train_index, test_index in outer_cv.split(X_matrix, y_matrix, groups):
         train_indices.append(train_index)
         test_indices.append(test_index)
+
+        print(X_matrix[train_index].shape)
+        print(y_matrix[train_index].shape)
 
         pl.fit(X_matrix[train_index], y_matrix[train_index])
 
@@ -556,6 +560,15 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
                 f"{sub_name}_space-{space}_roi-{roi}_brain_responses.npy",
             )
         )
+
+        roi_fname = (
+            f"{sub_name}_task-floc_space-{space}*_roi-{roi}_*_desc-smooth_mask.nii.gz"
+        )
+        try:
+            roi_mask = nib.load(next(Path(data_dir, "rois", sub_name).glob(roi_fname)))
+        except StopIteration:
+            raise FileNotFoundError(f"Could not find ROI file matching {roi_fname}")
+
     else:
         y_matrix = np.load(
             Path(
@@ -651,8 +664,13 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             scoring=scoring,
             cv_strategy=cv_strategy,
         )
+
+    try:
         best_alphas = [best_alpha_.cpu() for best_alpha_ in scores["best_alphas"]]
         best_scores = [best_score_.cpu() for best_score_ in scores["best_scores"]]
+    except AttributeError:
+        best_alphas = scores["best_alphas"]
+        best_scores = scores["best_scores"]
 
     if roi is None:
         roi = "wholebrain"
@@ -705,14 +723,26 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
         )
     plt.close(fig_alphas)
 
-    plot_flatmap(
-        best_scores,
-        sub_name,
-        mask,
-        cv_strategy,
-        scoring_metric=scoring_metric,
-        average=average,
-    )
+    if roi == "wholebrain":
+        plot_flatmap(
+            best_scores,
+            sub_name,
+            mask,
+            cv_strategy,
+            scoring_metric=scoring_metric,
+            average=average,
+        )
+    else:
+        masker = NiftiMasker(mask_img=roi_mask).fit()
+        fig = plotting.plot_stat_map(
+            masker.inverse_transform(np.mean(best_scores, axis=0)),
+            display_mode="z",
+            cut_coords=1,
+            colorbar=True,
+        )
+        fig.savefig(
+            f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}_{scoring_metric}_statmap.png"
+        )
 
 
 if __name__ == "__main__":
