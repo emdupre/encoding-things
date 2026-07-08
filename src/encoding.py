@@ -466,6 +466,180 @@ def ridgeCV_himalaya(
     return scores
 
 
+def ompCV_sklearn(
+    X_matrix,
+    y_matrix,
+    groups=None,
+    scoring=r2_score,
+    cv_strategy="image",
+    max_nonzero_coefs=None,
+    inner_cv=5,
+):
+    """
+    Parameters
+    ----------
+    X_matrix : np.arr
+        Training data for stimulus embeddings.
+        Expected shape (n_samples, n_features)
+    y_matrix : np.arr
+        Training data for brain responses
+        Expected shape (n_samples, n_features, n_repeats)
+    groups : np.arr
+        Group labels for outer_cv, should correspond to image
+        identity or image categor(ies).
+        Expected shape (n_samples, )
+    scoring : Callable
+        Scoring function for estimator predictions.
+    cv_strategy : str
+    max_nonzero_coefs : int or None
+        Upper bound on sparsity level OMPCV searches over (analogous
+        to the `alphas` grid in ridge). Defaults to sklearn's internal
+        default: min(n_features, n_samples // 2).
+    inner_cv : int
+        Number of folds used *inside* OrthogonalMatchingPursuitCV to
+        pick n_nonzero_coefs per target. This is separate from, and
+        not group-aware with respect to, outer_cv/groups.
+    """
+    from sklearn.linear_model import OrthogonalMatchingPursuitCV
+    from sklearn.multioutput import MultiOutputRegressor
+
+    scaler = StandardScaler(with_mean=True, with_std=False)
+    scaler.fit_transform(X_matrix)
+    scaler.fit_transform(y_matrix)
+
+    if groups is None:
+        outer_cv = KFold(shuffle=True, random_state=0)
+    else:
+        if cv_strategy == "image":
+            outer_cv = GroupKFold(shuffle=True, random_state=0)
+        elif cv_strategy == "multilabel":
+            outer_cv = LeaveOneGroupOut()
+
+    base_estimator = OrthogonalMatchingPursuitCV(
+        max_iter=max_nonzero_coefs,
+        cv=inner_cv,
+        n_jobs=-1,
+    )
+    # OMPCV only supports single-target regression, so we wrap it to get
+    # per-target n_nonzero_coefs selection, same behavior as
+    # RidgeCV(alpha_per_target=True). Note that this is not group-aware with
+    # respect to outer_cv/groups.
+    estimator = MultiOutputRegressor(base_estimator, n_jobs=-1)
+
+    scorer = make_scorer(scoring)
+    sklearn.set_config(enable_metadata_routing=True)
+
+    scores = cross_validate(
+        estimator,
+        X_matrix,
+        y=y_matrix,
+        cv=outer_cv,
+        scoring=scorer,
+        params={"groups": groups} if groups is not None else None,
+        return_estimator=True,
+        return_indices=True,
+        error_score="raise",
+    )
+    return scores
+
+
+def omp_fixed_k_sklearn(
+    X_matrix,
+    y_matrix,
+    groups=None,
+    scoring=r2_score,
+    cv_strategy="image",
+    k_grid=None,
+    inner_cv=5,
+    group_aware_inner=False,
+):
+    """
+    Parameters
+    ----------
+    X_matrix : np.arr
+        Training data for stimulus embeddings.
+        Expected shape (n_samples, n_features)
+    y_matrix : np.arr
+        Training data for brain responses
+        Expected shape (n_samples, n_features, n_repeats)
+    groups : np.arr
+        Group labels for outer_cv, should correspond to image
+        identity or image categor(ies).
+        Expected shape (n_samples, )
+    scoring : Callable
+        Scoring function for estimator predictions.
+    cv_strategy : str
+    k_grid : array-like or None
+        Candidate values for n_nonzero_coefs, shared across all targets.
+        Defaults to a log spread from 1 to n_features if None.
+    inner_cv : int
+        Number of folds for the inner grid search over k, used when
+        group_aware_inner=False.
+    group_aware_inner : bool
+        If True, use a group-aware splitter (GroupKFold) for the inner
+        k-search as well, with `groups` routed through via metadata
+        routing. If False, inner search uses plain KFold(inner_cv),
+        matching the same rigor level as RidgeCV(cv=None).
+    """
+    from sklearn.linear_model import OrthogonalMatchingPursuit
+    from sklearn.model_selection import GridSearchCV
+
+    n_features = X_matrix.shape[1]
+    if k_grid is None:
+        k_grid = np.unique(np.linspace(1, n_features, 20, dtype=int))
+
+    scaler = StandardScaler(with_mean=True, with_std=False)
+    scaler.fit_transform(X_matrix)
+    scaler.fit_transform(y_matrix)
+
+    if groups is None:
+        outer_cv = KFold(shuffle=True, random_state=0)
+    else:
+        if cv_strategy == "image":
+            outer_cv = GroupKFold(shuffle=True, random_state=0)
+        elif cv_strategy == "multilabel":
+            outer_cv = LeaveOneGroupOut()
+
+    scorer = make_scorer(scoring)
+    sklearn.set_config(enable_metadata_routing=True)
+
+    # Inner search over n_nonzero_coefs (k), analogous to RidgeCV's alpha
+    # search). A single OMP fit handles all targets, with one shared k
+    # across targets per fit.
+    param_grid = {"n_nonzero_coefs": k_grid}
+    if group_aware_inner:
+        inner_cv_splitter = GroupKFold(
+            n_splits=inner_cv, shuffle=True, random_state=0
+        )
+        inner_cv_splitter.set_split_request(groups=True)
+    else:
+        inner_cv_splitter = KFold(
+            n_splits=inner_cv, shuffle=True, random_state=0
+        )
+
+    estimator = GridSearchCV(
+        OrthogonalMatchingPursuit(),
+        param_grid=param_grid,
+        cv=inner_cv_splitter,
+        scoring=scorer,
+        n_jobs=-1,
+        error_score="raise",
+    )
+
+    scores = cross_validate(
+        estimator,
+        X_matrix,
+        y=y_matrix,
+        cv=outer_cv,
+        scoring=scorer,
+        params={"groups": groups} if groups is not None else None,
+        return_estimator=True,
+        return_indices=True,
+        error_score="raise",
+    )
+    return scores
+
+
 @click.command()
 @click.option("--sub_name", default="sub-01", help="Subject name.")
 @click.option("--roi", default=None, help="Region-of-interest")
