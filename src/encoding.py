@@ -11,7 +11,7 @@ import numpy as np
 import scipy
 import sklearn
 from himalaya.scoring import correlation_score
-from nilearn import masking, plotting
+from nilearn import image, masking, plotting
 from nilearn.maskers import NiftiMasker
 from sklearn.metrics import make_scorer, r2_score
 from sklearn.model_selection import (
@@ -35,6 +35,7 @@ def plot_flatmap(
     cv_strategy,
     scoring_metric="r2_score",
     average=False,
+    data_dir=".",
 ):
     """
     Parameters
@@ -60,11 +61,17 @@ def plot_flatmap(
     )
 
     if average:
-        out_name = (
-            f"{sub_name}_{cv_strategy}-average_encoding_{scoring_metric}_flatmap.png"
+        out_name = Path(
+            data_dir,
+            "encoding-results",
+            f"{sub_name}_{cv_strategy}-average_encoding_{scoring_metric}_flatmap.png",
         )
     else:
-        out_name = f"{sub_name}_{cv_strategy}_encoding_{scoring_metric}_flatmap.png"
+        out_name = Path(
+            data_dir,
+            "encoding-results",
+            f"{sub_name}_{cv_strategy}_encoding_{scoring_metric}_flatmap.png",
+        )
 
     # fig = cortex.quickshow(nii_vol, sampler="nearest")
     cortex.quickflat.make_png(
@@ -646,7 +653,7 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
         scores = ridgeCV_rrr(
             X_matrix,
             y_matrix,
-            ranks=[2**i for i in range(8)],
+            ranks=[2**i for i in range(7)],
             groups=groups,
             scoring=scoring,
             cv_strategy=cv_strategy,
@@ -673,13 +680,13 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
     if average:
         out_file = Path(
             data_dir,
-            "encoding-inputs",
+            "encoding-results",
             f"{sub_name}_space-{space}_roi-{roi}_cv-{cv_strategy}-average_{engine}_scores.pkl",
         )
     else:
         out_file = Path(
             data_dir,
-            "encoding-inputs",
+            "encoding-results",
             f"{sub_name}_space-{space}_roi-{roi}_cv-{cv_strategy}_{engine}_scores.pkl",
         )
 
@@ -714,11 +721,19 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             )
         if average:
             fig_alphas.savefig(
-                f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}-average_{scoring_metric}_{engine}_alphas.png"
+                Path(
+                    data_dir,
+                    "encoding-results",
+                    f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}-average_{scoring_metric}_{engine}_alphas.png",
+                )
             )
         else:
             fig_alphas.savefig(
-                f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}_{scoring_metric}_{engine}_alphas.png"
+                Path(
+                    data_dir,
+                    "encoding-results",
+                    f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}_{scoring_metric}_{engine}_alphas.png",
+                )
             )
         plt.close(fig_alphas)
 
@@ -730,6 +745,7 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             cv_strategy,
             scoring_metric=scoring_metric,
             average=average,
+            data_dir=data_dir,
         )
     elif roi in ["EBA", "FFA", "OFA", "pSTS", "MPA", "OPA", "PPA"]:
         # plot stat map of scores across ROI
@@ -745,7 +761,11 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
                 cmap="PuRd",
             )
             fig.savefig(
-                f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}_{scoring_metric}_{engine}_statmap.png"
+                Path(
+                    data_dir,
+                    "encoding-results",
+                    f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}_{scoring_metric}_{engine}_statmap.png",
+                )
             )
 
 
