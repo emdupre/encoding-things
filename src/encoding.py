@@ -557,6 +557,147 @@ def ompCV_sklearn(
     return scores
 
 
+def orthogonal_mp_sklearn(
+    X_matrix,
+    y_matrix,
+    groups=None,
+    scoring=r2_score,
+    cv_strategy="image",
+    max_nonzero_coefs=None,
+    n_inner_splits=5,
+):
+    """
+    Nested cross-validation for Orthogonal Matching Pursuit.
+
+    Parameters
+    ----------
+    X_matrix : np.arr
+        Training data for stimulus embeddings.
+        Expected shape (n_samples, n_features)
+    y_matrix : np.arr
+        Training data for brain responses
+        Expected shape (n_samples, n_features, n_repeats)
+    groups : np.arr
+        Group labels for outer_cv, should correspond to image
+        identity or image category.
+        Expected shape (n_samples, )
+    scoring : Callable
+        Scoring function for estimator predictions.
+    cv_strategy : str
+    max_nonzero_coefs : int or None
+        Maximum number of non-zero coefficients to consider for the
+        OMP estimator. If None, defaults to the number of features in
+        X_matrix.
+    n_inner_splits : int
+        Number of folds for the inner cross-validation to select
+        the best sparsity level. Only used if n_nonzero_coefs is None.
+    """
+    from sklearn.linear_model import orthogonal_mp
+
+    scaler = StandardScaler(with_mean=True, with_std=False)
+    scaler.fit_transform(X_matrix)
+    scaler.fit_transform(y_matrix)
+
+    if max_nonzero_coefs is None:
+        max_nonzero_coefs = X_matrix.shape[1]
+
+    # Outer CV:
+    if groups is None:
+        outer_cv = KFold(shuffle=True, random_state=0)
+    else:
+        if cv_strategy in ["category", "image"]:
+            outer_cv = GroupKFold(shuffle=True, random_state=0)
+        elif cv_strategy == "multilabel":
+            outer_cv = LeaveOneGroupOut()
+
+    scores = defaultdict()
+
+    # Outer loop
+    for outer_train_index, outer_test_index in outer_cv.split(
+        X_matrix, y_matrix, groups
+    ):
+        X_train = X_matrix[outer_train_index]
+        y_train = y_matrix[outer_train_index]
+
+        X_test = X_matrix[outer_test_index]
+        y_test = y_matrix[outer_test_index]
+
+        # Inner cv
+        if groups is None:
+            inner_cv = KFold(
+                n_splits=n_inner_splits, shuffle=True, random_state=0
+            )
+            inner_groups = None
+        else:
+            inner_groups = groups[outer_train_index]
+            if cv_strategy in ["category", "image"]:
+                inner_cv = GroupKFold(
+                    n_splits=n_inner_splits, shuffle=True, random_state=0
+                )
+            elif cv_strategy == "multilabel":
+                inner_cv = LeaveOneGroupOut()
+
+        validation_scores = np.zeros(max_nonzero_coefs)
+
+        # Inner loop
+        for inner_train_index, inner_val_index in inner_cv.split(
+            X_train, y_train, inner_groups
+        ):
+            X_inner_train = X_train[inner_train_index]
+            y_inner_train = y_train[inner_train_index]
+
+            X_inner_val = X_train[inner_val_index]
+            y_inner_val = y_train[inner_val_index]
+
+            coef_path = orthogonal_mp(
+                X_inner_train,
+                y_inner_train,
+                n_nonzero_coefs=max_nonzero_coefs,
+                return_path=True,
+                precompute=True,
+            )
+            n_path = coef_path.shape[1]
+
+            for k in range(n_path):
+                coef = coef_path[:, :, k]
+                Ypred = X_inner_val @ coef
+
+                validation_scores[k] += scoring(y_inner_val, Ypred)
+
+        validation_scores /= inner_cv.get_n_splits(
+            X_train, y_train, inner_groups
+        )
+        best_k = np.argmax(validation_scores) + 1
+
+        # Refit on the entire outer training set with best_k
+        coef = orthogonal_mp(
+            X_train, y_train, n_nonzero_coefs=best_k, precompute=True
+        )
+        Ypred = X_test @ coef
+        test_score = scoring(y_test, Ypred)
+
+        scores["best_scores"].append(test_score)
+        scores["best_ks"].append(best_k)
+        scores["validation_scores"].append(validation_scores)
+        scores["indices"].append(
+            dict(train=outer_train_index, test=outer_test_index)
+        )
+
+    return scores
+
+
+
+
+
+
+
+
+
+        
+        
+
+
+
 def omp_fixed_k_sklearn(
     X_matrix,
     y_matrix,
