@@ -474,6 +474,8 @@ def ompCV_sklearn(
     cv_strategy="image",
     max_nonzero_coefs=None,
     inner_cv=5,
+    n_jobs_outer=-1,
+    n_jobs_inner=1,
 ):
     """
     Parameters
@@ -493,12 +495,24 @@ def ompCV_sklearn(
     cv_strategy : str
     max_nonzero_coefs : int or None
         Upper bound on sparsity level OMPCV searches over (analogous
-        to the `alphas` grid in ridge). Defaults to sklearn's internal
-        default: min(n_features, n_samples // 2).
-    inner_cv : int
-        Number of folds used *inside* OrthogonalMatchingPursuitCV to
-        pick n_nonzero_coefs per target. This is separate from, and
-        not group-aware with respect to, outer_cv/groups.
+        to the `alphas` grid in ridge). Passed as `max_iter` to
+        OrthogonalMatchingPursuitCV. If None, defaults to sklearn's
+        default: 10% of n_features, or 5, whichever is larger.
+    inner_cv : int, cross-validation generator, iterable, or None
+        Number of folds (or splitter/iterable) used *inside*
+        OrthogonalMatchingPursuitCV to pick n_nonzero_coefs per target.
+        If None, sklearn defaults to KFold (n_splits=5). This inner CV
+        is separate from, and not group-aware with respect to,
+        outer_cv/groups.
+    n_jobs_outer : int
+        Number of jobs to run in parallel passed to MultiOutputRegressor
+        for the outer cross-validation. Parallelizes across targets
+        (voxels) for each outer fold. If -1, uses all available cores.
+    n_jobs_inner : int
+        Number of jobs to run in parallel passed to
+        OrthogonalMatchingPursuitCV for the inner cross-validation.
+        Parallelizes across the estimator's inner CV folds within a
+        single target fit. Defaults to 1 (sequential).
     """
     from sklearn.linear_model import OrthogonalMatchingPursuitCV
     from sklearn.multioutput import MultiOutputRegressor
@@ -518,13 +532,13 @@ def ompCV_sklearn(
     base_estimator = OrthogonalMatchingPursuitCV(
         max_iter=max_nonzero_coefs,
         cv=inner_cv,
-        n_jobs=-1,
+        n_jobs=n_jobs_inner,
     )
     # OMPCV only supports single-target regression, so we wrap it to get
     # per-target n_nonzero_coefs selection, same behavior as
     # RidgeCV(alpha_per_target=True). Note that this is not group-aware with
     # respect to outer_cv/groups.
-    estimator = MultiOutputRegressor(base_estimator, n_jobs=-1)
+    estimator = MultiOutputRegressor(base_estimator, n_jobs=n_jobs_outer)
 
     scorer = make_scorer(scoring)
     sklearn.set_config(enable_metadata_routing=True)
@@ -552,6 +566,7 @@ def omp_fixed_k_sklearn(
     k_grid=None,
     inner_cv=5,
     group_aware_inner=False,
+    n_jobs_grid=-1
 ):
     """
     Parameters
@@ -580,6 +595,9 @@ def omp_fixed_k_sklearn(
         k-search as well, with `groups` routed through via metadata
         routing. If False, inner search uses plain KFold(inner_cv),
         matching the same rigor level as RidgeCV(cv=None).
+    n_jobs_grid : int
+        Number of jobs to run in parallel for the inner GridSearchCV
+        over k. Defaults to -1 (all available cores).
     """
     from sklearn.linear_model import OrthogonalMatchingPursuit
     from sklearn.model_selection import GridSearchCV
@@ -622,7 +640,7 @@ def omp_fixed_k_sklearn(
         param_grid=param_grid,
         cv=inner_cv_splitter,
         scoring=scorer,
-        n_jobs=-1,
+        n_jobs=n_jobs_grid,
         error_score="raise",
     )
 
