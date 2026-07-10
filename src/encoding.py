@@ -610,7 +610,7 @@ def orthogonal_mp_sklearn(
         elif cv_strategy == "multilabel":
             outer_cv = LeaveOneGroupOut()
 
-    scores = defaultdict()
+    scores = defaultdict(list)
 
     # Outer loop
     for outer_train_index, outer_test_index in outer_cv.split(
@@ -638,6 +638,7 @@ def orthogonal_mp_sklearn(
                 inner_cv = LeaveOneGroupOut()
 
         validation_scores = np.zeros(max_nonzero_coefs)
+        n_inner_folds_used = np.zeros(max_nonzero_coefs)  # tracks premature-stop edge case
 
         # Inner loop
         for inner_train_index, inner_val_index in inner_cv.split(
@@ -656,25 +657,30 @@ def orthogonal_mp_sklearn(
                 return_path=True,
                 precompute=True,
             )
-            n_path = coef_path.shape[1]
+            n_path = coef_path.shape[-1]
 
             for k in range(n_path):
                 coef = coef_path[:, :, k]
-                Ypred = X_inner_val @ coef
+                y_pred = X_inner_val @ coef
+                validation_scores[k] += scoring(y_inner_val, y_pred)
+                n_inner_folds_used[k] += 1
 
-                validation_scores[k] += scoring(y_inner_val, Ypred)
-
-        validation_scores /= inner_cv.get_n_splits(
-            X_train, y_train, inner_groups
-        )
-        best_k = np.argmax(validation_scores) + 1
+        # Average only over folds that reached each k (guards against 
+        # premature stopping)
+        with np.errstate(invalid="ignore"):
+            validation_scores = np.divide(
+                validation_scores, n_inner_folds_used,
+                out=np.full_like(validation_scores, -np.inf),
+                where=n_inner_folds_used > 0,
+            )
+        best_k = int(np.argmax(validation_scores)) + 1
 
         # Refit on the entire outer training set with best_k
         coef = orthogonal_mp(
             X_train, y_train, n_nonzero_coefs=best_k, precompute=True
         )
-        Ypred = X_test @ coef
-        test_score = scoring(y_test, Ypred)
+        y_pred = X_test @ coef
+        test_score = scoring(y_test, y_pred)
 
         scores["best_scores"].append(test_score)
         scores["best_ks"].append(best_k)
@@ -684,18 +690,6 @@ def orthogonal_mp_sklearn(
         )
 
     return scores
-
-
-
-
-
-
-
-
-
-        
-        
-
 
 
 def omp_fixed_k_sklearn(
