@@ -567,7 +567,8 @@ def orthogonal_mp_sklearn(
     n_inner_splits=5,
 ):
     """
-    Nested cross-validation for Orthogonal Matching Pursuit.
+    Nested cross-validation for Orthogonal Matching Pursuit with
+    an independetly chosen sparsity level for each target.
 
     Parameters
     ----------
@@ -618,9 +619,10 @@ def orthogonal_mp_sklearn(
     ):
         X_train = X_matrix[outer_train_index]
         y_train = y_matrix[outer_train_index]
-
         X_test = X_matrix[outer_test_index]
         y_test = y_matrix[outer_test_index]
+
+        n_targets = y_train.shape[1]
 
         # Inner cv
         if groups is None:
@@ -637,8 +639,9 @@ def orthogonal_mp_sklearn(
             elif cv_strategy == "multilabel":
                 inner_cv = LeaveOneGroupOut()
 
-        validation_scores = np.zeros(max_nonzero_coefs)
-        n_inner_folds_used = np.zeros(max_nonzero_coefs)  # tracks premature-stop edge case
+        # Per target tracking
+        validation_scores = np.zeros((max_nonzero_coefs, n_targets))
+        n_inner_folds_used = np.zeros((max_nonzero_coefs, n_targets))
 
         # Inner loop
         for inner_train_index, inner_val_index in inner_cv.split(
@@ -646,7 +649,6 @@ def orthogonal_mp_sklearn(
         ):
             X_inner_train = X_train[inner_train_index]
             y_inner_train = y_train[inner_train_index]
-
             X_inner_val = X_train[inner_val_index]
             y_inner_val = y_train[inner_val_index]
 
@@ -660,30 +662,51 @@ def orthogonal_mp_sklearn(
             n_path = coef_path.shape[-1]
 
             for k in range(n_path):
-                coef = coef_path[:, :, k]
-                y_pred = X_inner_val @ coef
-                validation_scores[k] += scoring(y_inner_val, y_pred)
-                n_inner_folds_used[k] += 1
+                coef_k = coef_path[:, :, k]  # (n_features, n_targets)
+                y_pred_k = X_inner_val @ coef_k  # (n_val_samples, n_targets)
+                for t in range(n_targets):
+                    validation_scores[k, t] += scoring(
+                        y_inner_val[:, t], y_pred_k[:, t]
+                    )
+                    n_inner_folds_used[k, t] += 1
 
-        # Average only over folds that reached each k (guards against 
+        # Average only over folds that reached each k (guards against
         # premature stopping)
         with np.errstate(invalid="ignore"):
             validation_scores = np.divide(
-                validation_scores, n_inner_folds_used,
+                validation_scores,
+                n_inner_folds_used,
                 out=np.full_like(validation_scores, -np.inf),
                 where=n_inner_folds_used > 0,
             )
-        best_k = int(np.argmax(validation_scores)) + 1
+        best_k_per_target = (
+            validation_scores.argmax(axis=0) + 1
+        )  # (n_targets,)
 
-        # Refit on the entire outer training set with best_k
-        coef = orthogonal_mp(
-            X_train, y_train, n_nonzero_coefs=best_k, precompute=True
+        # Refit, one call covers every target's own best k
+        refit_ceiling = int(best_k_per_target.max())
+        coef_path_refit = orthogonal_mp(
+            X_train,
+            y_train,
+            n_nonzero_coefs=refit_ceiling,
+            return_path=True,
+            precompute=True,
         )
-        y_pred = X_test @ coef
-        test_score = scoring(y_test, y_pred)
+        final_coefs = np.stack(
+            [
+                coef_path_refit[:, t, best_k_per_target[t] - 1]
+                for t in range(n_targets)
+            ],
+            axis=1,
+        )  # (n_features, n_targets)
 
-        scores["best_scores"].append(test_score)
-        scores["best_ks"].append(best_k)
+        y_pred = X_test @ final_coefs
+        per_target_test_scores = np.array(
+            [scoring(y_test[:, t], y_pred[:, t]) for t in range(n_targets)]
+        )
+
+        scores["per_target_test_scores"].append(per_target_test_scores)
+        scores["best_k_per_target"].append(best_k_per_target)
         scores["validation_scores"].append(validation_scores)
         scores["indices"].append(
             dict(train=outer_train_index, test=outer_test_index)
