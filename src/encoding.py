@@ -566,7 +566,7 @@ def braincorl_cv(
     help="Space in which to run encoding analyses. Must be either 'MNI152NLin2009cAsym' or 'T1w'.",
 )
 @click.option(
-    "braincorl_chkpt",
+    "--braincorl_chkpt",
     default="checkpoints/CLIP_trained_on_s1257.pth",
     help="Path to the BrainCoRL checkpoint file.",
 )
