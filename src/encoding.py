@@ -714,12 +714,12 @@ def main(
             y_matrix = y_matrix[cat53_stim_mask_][y_idx]
     ####################################
     # FIXME
-    inner_groups = np.loadtxt(
-        Path(
-            data_dir, "encoding-inputs", space, f"{sub_name}_session_labels.txt"
-        ),
-        dtype=np.str_,
-    )
+    # inner_groups = np.loadtxt(
+    #     Path(
+    #         data_dir, "encoding-inputs", space, f"{sub_name}_session_labels.txt"
+    #     ),
+    #     dtype=np.str_,
+    # )
     ####################################
     if average:
         # NOTE: shapes hard-coded for three repetitions, 4174 images, THINGS dataset
