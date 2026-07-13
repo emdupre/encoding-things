@@ -680,7 +680,17 @@ def main(
             mmap_mode="r",
         )
 
-    expl_var = explainable_variance(y_matrix)
+    trial_matrix = np.load(
+        Path(
+            data_dir,
+            "encoding-inputs",
+            "trial",
+            space,
+            f"{sub_name}_space-{space}_brain_responses.npy",
+        ),
+        mmap_mode="r",
+    )
+    expl_var = explainable_variance(trial_matrix)
 
     if cv_strategy == "kfold":
         groups = None
