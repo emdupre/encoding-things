@@ -256,6 +256,7 @@ def main(sub_name, roi, space, data_dir):
     out_stim = Path(
         data_dir,
         "encoding-inputs",
+        "trial",
         space,
         f"{sub_name}_stim_labels.txt",
     )
@@ -266,6 +267,7 @@ def main(sub_name, roi, space, data_dir):
     out_y_sessions = Path(
         data_dir,
         "encoding-inputs",
+        "trial",
         space,
         f"{sub_name}_session_labels.txt",
     )
@@ -276,6 +278,7 @@ def main(sub_name, roi, space, data_dir):
     out_X_matrix = Path(
         data_dir,
         "encoding-inputs",
+        "trial",
         space,
         f"{sub_name}_stim_features.npy",
     )
@@ -287,6 +290,7 @@ def main(sub_name, roi, space, data_dir):
         out_y_matrix = Path(
             data_dir,
             "encoding-inputs",
+            "trial",
             space,
             f"{sub_name}_space-{space}_roi-{roi}_brain_responses.npy",
         )
@@ -294,6 +298,7 @@ def main(sub_name, roi, space, data_dir):
         out_y_matrix = Path(
             data_dir,
             "encoding-inputs",
+            "trial",
             space,
             f"{sub_name}_space-{space}_brain_responses.npy",
         )
@@ -307,6 +312,7 @@ def main(sub_name, roi, space, data_dir):
     out_mask = Path(
         data_dir,
         "encoding-inputs",
+        "trial",
         space,
         f"{sub_name}_space-{space}_brain_mask.nii.gz",
     )
@@ -317,6 +323,7 @@ def main(sub_name, roi, space, data_dir):
     out_dict = Path(
         data_dir,
         "encoding-inputs",
+        "trial",
         space,
         f"{sub_name}_category53_mapping.json",
     )
