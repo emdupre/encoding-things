@@ -1,8 +1,8 @@
 import click
 import torch
 from thingsvision import get_extractor
+from thingsvision.utils.data import DataLoader, ImageDataset
 from thingsvision.utils.storing import save_features
-from thingsvision.utils.data import ImageDataset, DataLoader
 
 
 @click.command()
@@ -23,7 +23,7 @@ def main(input_dir, output_dir):
     model_name = "clip"
     source = "custom"
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model_parameters = {"variant": "RN50"}
+    model_parameters = {"variant": "ViT-B/32"}
     batch_size = 32
 
     extractor = get_extractor(
@@ -62,3 +62,6 @@ def main(input_dir, output_dir):
         out_path=output_dir,
         file_format="npy",
     )
+
+if __name__ == "__main__":
+    main()

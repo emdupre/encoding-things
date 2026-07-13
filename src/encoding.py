@@ -23,6 +23,7 @@ from sklearn.model_selection import (
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import MultiLabelBinarizer, StandardScaler
 
+from braincorl import BrainCoRL
 from rrr import ReducedRankRidgeRegressionCV
 
 # os.environ["PATH"] += ":/Applications/Inkscape.app/Contents/MacOS/"
@@ -60,11 +61,11 @@ def plot_flatmap(
     )
 
     if average:
-        out_name = (
-            f"{sub_name}_{cv_strategy}-average_encoding_{scoring_metric}_flatmap.png"
-        )
+        out_name = f"{sub_name}_{cv_strategy}-average_encoding_{scoring_metric}_flatmap.png"
     else:
-        out_name = f"{sub_name}_{cv_strategy}_encoding_{scoring_metric}_flatmap.png"
+        out_name = (
+            f"{sub_name}_{cv_strategy}_encoding_{scoring_metric}_flatmap.png"
+        )
 
     # fig = cortex.quickshow(nii_vol, sampler="nearest")
     cortex.quickflat.make_png(
@@ -116,7 +117,9 @@ def plot_alphas_diagnostic(best_alphas, alphas, cv_fold=None, ax=None):
         fig, ax = plt.subplots(1, 1)
 
     log10alphas = np.log(alphas) / np.log(10)
-    ax.plot(log10alphas, hist, ".-", markersize=12, label=f"Outer-CV fold {cv_fold}")
+    ax.plot(
+        log10alphas, hist, ".-", markersize=12, label=f"Outer-CV fold {cv_fold}"
+    )
     ax.set_ylabel("Number of targets")
     ax.set_xlabel("log10(alpha)")
     if cv_fold is not None:
@@ -175,7 +178,9 @@ def plot_voxel_hist(
         log=True,
         histtype="step",
         label=(
-            "$R^2$ values" if (scoring_metric == "r2_score") else "Correlation values"
+            "$R^2$ values"
+            if (scoring_metric == "r2_score")
+            else "Correlation values"
         ),
     )
     ax.fill_between(
@@ -268,9 +273,9 @@ def explainable_variance(y_matrix, bias_correction=True, do_zscore=True):
     """
     n_repeats = 3  # NOTE : Hard-coded for THINGS dataset
     n_stimuli, n_voxels = y_matrix.shape
-    data = y_matrix.reshape((n_stimuli // n_repeats, n_repeats, n_voxels)).swapaxes(
-        0, 1
-    )
+    data = y_matrix.reshape(
+        (n_stimuli // n_repeats, n_repeats, n_voxels)
+    ).swapaxes(0, 1)
 
     if do_zscore:
         data = scipy.stats.zscore(data, axis=1)
@@ -342,7 +347,12 @@ def ridgeCV_sklearn(
 
 
 def ridgeCV_rrr(
-    X_matrix, y_matrix, ranks, groups=None, scoring=r2_score, cv_strategy="image"
+    X_matrix,
+    y_matrix,
+    ranks,
+    groups=None,
+    scoring=r2_score,
+    cv_strategy="image",
 ):
     """
     Parameters
@@ -455,7 +465,9 @@ def ridgeCV_himalaya(
             y_pred = pl.predict(X_matrix[test_index])
             best_scores.append(correlation_score(y_matrix[test_index], y_pred))
         else:
-            best_scores.append(pl.score(X_matrix[test_index], y_matrix[test_index]))
+            best_scores.append(
+                pl.score(X_matrix[test_index], y_matrix[test_index])
+            )
 
         best_alphas.append(pl[-1].best_alphas_)
 
@@ -466,10 +478,65 @@ def ridgeCV_himalaya(
     return scores
 
 
+def braincorl_cv(
+    X_matrix,
+    y_matrix,
+    groups=None,
+    scoring=r2_score,
+    cv_strategy="image",
+    checkpoint_path="checkpoints/CLIP_trained_on_s1257.pth",
+):
+    import torch
+
+    if groups is None:
+        outer_cv = KFold(shuffle=True, random_state=0)
+    else:
+        if cv_strategy in ["category", "image"]:
+            outer_cv = GroupKFold(shuffle=True, random_state=0)
+        elif cv_strategy == "multilabel":
+            outer_cv = LeaveOneGroupOut()
+
+    pl = make_pipeline(
+        StandardScaler(with_mean=True, with_std=False),
+        BrainCoRL(
+            backbone="CLIP",
+            checkpoint_path=checkpoint_path,
+            batch_size=512,
+            device="cuda" if torch.cuda.is_available() else "cpu",
+            nits_bootstrap=100,
+        ),
+    )
+
+    scores = defaultdict()
+    train_indices, test_indices = [], []
+    best_scores = []
+
+    for train_index, test_index in outer_cv.split(X_matrix, y_matrix, groups):
+        train_indices.append(train_index)
+        test_indices.append(test_index)
+
+        pl.fit(X_matrix[train_index], y_matrix[train_index])
+
+        if scoring is correlation_score:
+            y_pred = pl.predict(X_matrix[test_index])
+            best_scores.append(correlation_score(y_matrix[test_index], y_pred))
+        else:
+            best_scores.append(
+                pl.score(X_matrix[test_index], y_matrix[test_index])
+            )
+
+    scores["best_scores"] = best_scores
+    scores["indices"] = {"train": train_indices, "test": test_indices}
+
+    return scores
+
+
 @click.command()
 @click.option("--sub_name", default="sub-01", help="Subject name.")
 @click.option("--roi", default=None, help="Region-of-interest")
-@click.option("--cv_strategy", default="image", help="Cross-validation strategy")
+@click.option(
+    "--cv_strategy", default="image", help="Cross-validation strategy"
+)
 @click.option(
     "--scoring_metric",
     default="r2_score",
@@ -498,7 +565,28 @@ def ridgeCV_himalaya(
     default="T1w",
     help="Space in which to run encoding analyses. Must be either 'MNI152NLin2009cAsym' or 'T1w'.",
 )
-def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, space):
+@click.option(
+    "--braincorl_chkpt",
+    default="checkpoints/CLIP_trained_on_s1257.pth",
+    help="Path to the BrainCoRL checkpoint file.",
+)
+@click.option(
+    "--trial_averaged",
+    default=False,
+    help="Whether to use trial-averaged beta maps.",
+)
+def main(
+    sub_name,
+    roi,
+    cv_strategy,
+    scoring_metric,
+    average,
+    data_dir,
+    engine,
+    space,
+    braincorl_chkpt,
+    trial_averaged,
+):
     """ """
     rois = [None, "EBA", "FFA", "OFA", "pSTS", "MPA", "OPA", "PPA"]
     if roi not in rois:
@@ -516,9 +604,7 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
         raise ValueError(err_msg)
 
     if average and (cv_strategy == "image"):
-        err_msg = (
-            f"Cross-validation strategy {cv_strategy} is not compatible with 'average'"
-        )
+        err_msg = f"Cross-validation strategy {cv_strategy} is not compatible with 'average'"
         raise ValueError(err_msg)
 
     scoring_metrics = ["r2_score", "correlation_score"]
@@ -526,7 +612,7 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
         err_msg = f"Unrecognized scoring metric {scoring_metric}"
         raise ValueError(err_msg)
 
-    engines = ["himalaya", "sklearn", "rrr"]
+    engines = ["himalaya", "sklearn", "rrr", "braincorl"]
     if engine not in engines:
         err_msg = f"Unrecognized engine {engine}"
         raise ValueError(err_msg)
@@ -536,13 +622,26 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
     if scoring_metric == "correlation_score":
         scoring = correlation_score
 
+    if trial_averaged:
+        betas = "image"
+    else:
+        betas = "trial"
+
     X_matrix = np.load(
-        Path(data_dir, "encoding-inputs", space, f"{sub_name}_stim_features.npy")
+        Path(
+            data_dir,
+            "encoding-inputs",
+            betas,
+            space,
+            f"{sub_name}_stim_features.npy",
+        ),
+        mmap_mode="r",
     )
     mask = nib.load(
         Path(
             data_dir,
             "encoding-inputs",
+            betas,
             space,
             f"{sub_name}_space-{space}_brain_mask.nii.gz",
         )
@@ -553,30 +652,45 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             Path(
                 data_dir,
                 "encoding-inputs",
+                betas,
                 space,
                 f"{sub_name}_space-{space}_roi-{roi}_brain_responses.npy",
             )
         )
 
-        roi_fname = (
-            f"{sub_name}_task-floc_space-{space}*_roi-{roi}_*_desc-smooth_mask.nii.gz"
-        )
+        roi_fname = f"{sub_name}_task-floc_space-{space}*_roi-{roi}_*_desc-smooth_mask.nii.gz"
         try:
-            roi_mask = nib.load(next(Path(data_dir, "rois", sub_name).glob(roi_fname)))
+            roi_mask = nib.load(
+                next(Path(data_dir, "rois", sub_name).glob(roi_fname))
+            )
         except StopIteration:
-            raise FileNotFoundError(f"Could not find ROI file matching {roi_fname}")
+            raise FileNotFoundError(
+                f"Could not find ROI file matching {roi_fname}"
+            )
 
     else:
         y_matrix = np.load(
             Path(
                 data_dir,
                 "encoding-inputs",
+                betas,
                 space,
                 f"{sub_name}_space-{space}_brain_responses.npy",
-            )
+            ),
+            mmap_mode="r",
         )
 
-    expl_var = explainable_variance(y_matrix)
+    trial_matrix = np.load(
+        Path(
+            data_dir,
+            "encoding-inputs",
+            "trial",
+            space,
+            f"{sub_name}_space-{space}_brain_responses.npy",
+        ),
+        mmap_mode="r",
+    )
+    expl_var = explainable_variance(trial_matrix)
 
     if cv_strategy == "kfold":
         groups = None
@@ -586,7 +700,13 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
         # and "image" will return `incl_labels` corresponding
         # to image identities (e.g., 'acorn_01b').
         groups = np.loadtxt(
-            Path(data_dir, "encoding-inputs", space, f"{sub_name}_stim_labels.txt"),
+            Path(
+                data_dir,
+                "encoding-inputs",
+                betas,
+                space,
+                f"{sub_name}_stim_labels.txt",
+            ),
             dtype=np.str_,
         )
         if cv_strategy == "category":
@@ -598,13 +718,16 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
                 Path(
                     data_dir,
                     "encoding-inputs",
+                    betas,
                     space,
                     f"{sub_name}_category53_mapping.json",
                 )
             ) as f:
                 cat_dict = json.load(f)
 
-            cat53_stim_mask_ = [True if g in cat_dict.keys() else False for g in groups]
+            cat53_stim_mask_ = [
+                True if g in cat_dict.keys() else False for g in groups
+            ]
             cat53_X = X_matrix[cat53_stim_mask_]
 
             cat53_dense_labels_ = []
@@ -618,10 +741,12 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             y_matrix = y_matrix[cat53_stim_mask_][y_idx]
     ####################################
     # FIXME
-    inner_groups = np.loadtxt(
-        Path(data_dir, "encoding-inputs", space, f"{sub_name}_session_labels.txt"),
-        dtype=np.str_,
-    )
+    # inner_groups = np.loadtxt(
+    #     Path(
+    #         data_dir, "encoding-inputs", space, f"{sub_name}_session_labels.txt"
+    #     ),
+    #     dtype=np.str_,
+    # )
     ####################################
     if average:
         # NOTE: shapes hard-coded for three repetitions, 4174 images, THINGS dataset
@@ -632,6 +757,7 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             y_matrix.reshape(len(X_matrix), 3, y_matrix.shape[-1]), axis=1
         )
 
+    best_alphas = None
     if engine == "sklearn":
         scores = ridgeCV_sklearn(
             X_matrix,
@@ -662,11 +788,25 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             cv_strategy=cv_strategy,
         )
         try:
-            best_alphas = [best_alpha_.cpu() for best_alpha_ in scores["best_alphas"]]
-            best_scores = [best_score_.cpu() for best_score_ in scores["best_scores"]]
+            best_alphas = [
+                best_alpha_.cpu() for best_alpha_ in scores["best_alphas"]
+            ]
+            best_scores = [
+                best_score_.cpu() for best_score_ in scores["best_scores"]
+            ]
         except AttributeError:
             best_alphas = scores["best_alphas"]
             best_scores = scores["best_scores"]
+    elif engine == "braincorl":
+        scores = braincorl_cv(
+            X_matrix,
+            y_matrix,
+            groups=groups,
+            scoring=scoring,
+            cv_strategy=cv_strategy,
+            checkpoint_path=braincorl_chkpt,
+        )
+        best_scores = scores["best_scores"]
 
     if roi is None:
         roi = "wholebrain"
@@ -674,13 +814,13 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
         out_file = Path(
             data_dir,
             "encoding-inputs",
-            f"{sub_name}_space-{space}_roi-{roi}_cv-{cv_strategy}-average_{engine}_scores.pkl",
+            f"{sub_name}_space-{space}_roi-{roi}_stat-{betas}Betas_cv-{cv_strategy}-average_{engine}_scores.pkl",
         )
     else:
         out_file = Path(
             data_dir,
             "encoding-inputs",
-            f"{sub_name}_space-{space}_roi-{roi}_cv-{cv_strategy}_{engine}_scores.pkl",
+            f"{sub_name}_space-{space}_roi-{roi}_stat-{betas}Betas_cv-{cv_strategy}_{engine}_scores.pkl",
         )
 
     if not out_file.is_file():
@@ -708,10 +848,14 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
 
         # plot diagnostic of voxelwise best alphas ; QC for two clear peaks
         fig_alphas, ax = plt.subplots(1, 1)
-        for i, b_alpha in enumerate(best_alphas):
-            plot_alphas_diagnostic(
-                best_alphas=b_alpha, alphas=np.logspace(1, 20, 20), cv_fold=i, ax=ax
-            )
+        if best_alphas is not None:
+            for i, b_alpha in enumerate(best_alphas):
+                plot_alphas_diagnostic(
+                    best_alphas=b_alpha,
+                    alphas=np.logspace(1, 20, 20),
+                    cv_fold=i,
+                    ax=ax,
+                )
         if average:
             fig_alphas.savefig(
                 f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}-average_{scoring_metric}_{engine}_alphas.png"
