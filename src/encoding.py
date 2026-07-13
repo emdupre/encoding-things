@@ -570,6 +570,11 @@ def braincorl_cv(
     default="checkpoints/CLIP_trained_on_s1257.pth",
     help="Path to the BrainCoRL checkpoint file.",
 )
+@click.option(
+    "--trial_averaged",
+    default=False,
+    help="Whether to use trial-averaged beta maps.",
+)
 def main(
     sub_name,
     roi,
@@ -580,6 +585,7 @@ def main(
     engine,
     space,
     braincorl_chkpt,
+    trial_averaged,
 ):
     """ """
     rois = [None, "EBA", "FFA", "OFA", "pSTS", "MPA", "OPA", "PPA"]
@@ -616,10 +622,16 @@ def main(
     if scoring_metric == "correlation_score":
         scoring = correlation_score
 
+    if trial_averaged:
+        betas = "image"
+    else:
+        betas = "trial"
+
     X_matrix = np.load(
         Path(
             data_dir,
             "encoding-inputs",
+            betas,
             space,
             f"{sub_name}_stim_features_clip-vit-b16.npy",
         ),
@@ -629,6 +641,7 @@ def main(
         Path(
             data_dir,
             "encoding-inputs",
+            betas,
             space,
             f"{sub_name}_space-{space}_brain_mask.nii.gz",
         )
@@ -639,6 +652,7 @@ def main(
             Path(
                 data_dir,
                 "encoding-inputs",
+                betas,
                 space,
                 f"{sub_name}_space-{space}_roi-{roi}_brain_responses.npy",
             )
@@ -659,6 +673,7 @@ def main(
             Path(
                 data_dir,
                 "encoding-inputs",
+                betas,
                 space,
                 f"{sub_name}_space-{space}_brain_responses.npy",
             ),
@@ -678,6 +693,7 @@ def main(
             Path(
                 data_dir,
                 "encoding-inputs",
+                betas,
                 space,
                 f"{sub_name}_stim_labels.txt",
             ),
@@ -692,6 +708,7 @@ def main(
                 Path(
                     data_dir,
                     "encoding-inputs",
+                    betas,
                     space,
                     f"{sub_name}_category53_mapping.json",
                 )
@@ -787,13 +804,13 @@ def main(
         out_file = Path(
             data_dir,
             "encoding-inputs",
-            f"{sub_name}_space-{space}_roi-{roi}_cv-{cv_strategy}-average_{engine}_scores.pkl",
+            f"{sub_name}_space-{space}_roi-{roi}_stat-{betas}Betas_cv-{cv_strategy}-average_{engine}_scores.pkl",
         )
     else:
         out_file = Path(
             data_dir,
             "encoding-inputs",
-            f"{sub_name}_space-{space}_roi-{roi}_cv-{cv_strategy}_{engine}_scores.pkl",
+            f"{sub_name}_space-{space}_roi-{roi}_stat-{betas}Betas_cv-{cv_strategy}_{engine}_scores.pkl",
         )
 
     if not out_file.is_file():
