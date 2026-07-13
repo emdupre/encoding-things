@@ -633,7 +633,7 @@ def main(
             "encoding-inputs",
             betas,
             space,
-            f"{sub_name}_stim_features_clip-vit-b16.npy",
+            f"{sub_name}_stim_features.npy",
         ),
         mmap_mode="r",
     )
