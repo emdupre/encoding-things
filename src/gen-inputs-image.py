@@ -22,6 +22,7 @@ def _load_stim_arrays(data_dir):
 
     return clip_feats, clip_fnames
 
+
 def _category_mapping(sub_name, data_dir):
     """
     Parameters
@@ -78,7 +79,8 @@ def gen_inputs_image(sub_name, roi, space, data_dir):
     clip_feats, clip_fnames = _load_stim_arrays(data_dir)
     X_matrix = np.vstack(
         [
-            clip_feats[np.where(np.array(clip_fnames) == str(stim_name))[0]] for stim_name in stim_vec
+            clip_feats[np.where(np.array(clip_fnames) == str(stim_name))[0]]
+            for stim_name in stim_vec
         ]
     )
 

@@ -1,8 +1,8 @@
 import click
 import torch
 from thingsvision import get_extractor
+from thingsvision.utils.data import DataLoader, ImageDataset
 from thingsvision.utils.storing import save_features
-from thingsvision.utils.data import ImageDataset, DataLoader
 
 
 @click.command()
