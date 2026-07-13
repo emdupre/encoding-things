@@ -75,6 +75,25 @@ def gen_inputs_image(sub_name, roi, space, data_dir):
     )
     stim_vec = np.unique(stim_vec)
 
+    # Load sorted image betas
+    beta_fname = f"{sub_name}_task-things_space-{space}_model-fitHrfGLMdenoiseRR_stat-imageBetas_desc-zscore_statseries.h5"
+    beta_h5 = h5py.File(Path(data_dir, "betas", beta_fname), "r")
+    mask = nib.nifti1.Nifti1Image(
+        np.array(beta_h5["mask_array"]), affine=np.array(beta_h5["mask_affine"])
+    )
+
+    stim_mask = np.ones(len(stim_vec), dtype=bool)
+    rows = []
+
+    # Select images shown to subject
+    for i, stim_name in enumerate(stim_vec):
+        try:
+            rows.append(np.array(beta_h5[stim_name]["betas"]).flatten())
+        except KeyError:
+            stim_mask[i] = False
+    stim_vec = stim_vec[stim_mask]
+    y_matrix = np.vstack(rows)
+
     # Load and sort clip features
     clip_feats, clip_fnames = _load_stim_arrays(data_dir)
     X_matrix = np.vstack(
@@ -82,16 +101,6 @@ def gen_inputs_image(sub_name, roi, space, data_dir):
             clip_feats[np.where(np.array(clip_fnames) == str(stim_name))[0]]
             for stim_name in stim_vec
         ]
-    )
-
-    # Load sorted image betas
-    beta_fname = f"{sub_name}_task-things_space-{space}_model-fitHrfGLMdenoiseRR_stat-imageBetas_desc-zscore_statseries.h5"
-    beta_h5 = h5py.File(Path(data_dir, "betas", beta_fname), "r")
-    mask = nib.nifti1.Nifti1Image(
-        np.array(beta_h5["mask_array"]), affine=np.array(beta_h5["mask_affine"])
-    )
-    y_matrix = np.vstack(
-        [np.array(beta_h5[stim_name]["betas"]).flatten() for stim_name in stim_vec]
     )
 
     # Category mapping (similar to gen-inputs)
