@@ -62,3 +62,6 @@ def main(input_dir, output_dir):
         out_path=output_dir,
         file_format="npy",
     )
+
+if __name__ == "__main__":
+    main()
