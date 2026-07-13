@@ -23,7 +23,7 @@ def main(input_dir, output_dir):
     model_name = "clip"
     source = "custom"
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model_parameters = {"variant": "RN50"}
+    model_parameters = {"variant": "ViT-B/16"}
     batch_size = 32
 
     extractor = get_extractor(
