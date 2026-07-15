@@ -1,206 +1,26 @@
 import json
 import pickle
-from collections import defaultdict
 from pathlib import Path
 
 import click
-import cortex
 import matplotlib.pyplot as plt
 import nibabel as nib
 import numpy as np
 import scipy
-import sklearn
 from himalaya.scoring import correlation_score
-from nilearn import masking, plotting
 from nilearn.maskers import NiftiMasker
-from sklearn.metrics import make_scorer, r2_score
-from sklearn.model_selection import (
-    GroupKFold,
-    KFold,
-    LeaveOneGroupOut,
-    cross_validate,
+from nilearn.plotting import plot_stat_map
+from sklearn.metrics import r2_score
+from sklearn.preprocessing import MultiLabelBinarizer
+
+from plotting import plot_alphas_diagnostic, plot_flatmap, plot_voxel_hist
+from solvers import (
+    omp_fixed_k_sklearn,
+    orthogonal_mp_sklearn,
+    ridgeCV_himalaya,
+    ridgeCV_rrr,
+    ridgeCV_sklearn,
 )
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import MultiLabelBinarizer, StandardScaler
-
-from rrr import ReducedRankRidgeRegressionCV
-
-# os.environ["PATH"] += ":/Applications/Inkscape.app/Contents/MacOS/"
-
-
-def plot_flatmap(
-    best_scores,
-    sub_name,
-    mask_img,
-    cv_strategy,
-    scoring_metric="r2_score",
-    average=False,
-):
-    """
-    Parameters
-    ----------
-    nii : nib.Nifti
-        voxel-wise data to project to flatmap
-    sub_name : str
-    """
-    lh, rh = cortex.get_hemi_masks(subject=sub_name, xfmname="align_auto")
-
-    avg_best_score = np.mean(best_scores, axis=0)  # TODO: FIXME
-    nii = masking.unmask(avg_best_score, mask_img)
-
-    # https://gallantlab.org/pycortex/auto_examples/datasets/plot_vertex.html
-    vol = cortex.Volume(
-        data=np.swapaxes(nii.get_fdata(), 0, -1),
-        subject=sub_name,
-        xfmname="align_auto",
-        mask=mask_img.get_fdata(),
-        vmin=0,
-        vmax=0.30,
-        cmap="magma",
-    )
-
-    if average:
-        out_name = (
-            f"{sub_name}_{cv_strategy}-average_encoding_{scoring_metric}_flatmap.png"
-        )
-    else:
-        out_name = f"{sub_name}_{cv_strategy}_encoding_{scoring_metric}_flatmap.png"
-
-    # fig = cortex.quickshow(nii_vol, sampler="nearest")
-    cortex.quickflat.make_png(
-        out_name,
-        vol,
-        sampler="trilinear",
-        curv_brightness=1.0,
-        with_colorbar=True,
-        colorbar_location="left",
-        with_curvature=True,
-        with_labels=False,
-        with_rois=True,
-        dpi=300,
-        height=2048,
-    )
-    return
-
-
-def plot_alphas_diagnostic(best_alphas, alphas, cv_fold=None, ax=None):
-    """
-    Adapted from gallantlab/himalaya
-    BSD 3-Clause License
-    Copyright (c) 2020, the himalaya developers All rights reserved.
-
-    Plot a diagnostic plot for the selected alphas during cross-validation.
-
-    To figure out whether to increase the range of alphas.
-
-    Parameters
-    ----------
-    best_alphas : array of shape (n_targets, )
-        Alphas selected during cross-validation for each target.
-    alphas : array of shape (n_alphas)
-        Alphas used while fitting the model.
-    cv_fold : int or None
-        Outer cross-validation fold, for labelling
-    ax : None or figure axis
-
-    Returns
-    -------
-    ax : figure axis
-    """
-    alphas = np.sort(alphas)
-    n_alphas = len(alphas)
-    indices = np.argmin(np.abs(best_alphas[None] - alphas[:, None]), 0)
-    hist = np.bincount(indices, minlength=n_alphas)
-
-    if ax is None:
-        fig, ax = plt.subplots(1, 1)
-
-    log10alphas = np.log(alphas) / np.log(10)
-    ax.plot(log10alphas, hist, ".-", markersize=12, label=f"Outer-CV fold {cv_fold}")
-    ax.set_ylabel("Number of targets")
-    ax.set_xlabel("log10(alpha)")
-    if cv_fold is not None:
-        ax.legend()
-    ax.grid("on")
-    return ax
-
-
-def plot_voxel_hist(
-    sub_name, expl_var, best_scores, scoring_metric="r2_score", ax=None
-):
-    r"""
-    Adapted from the following examples :
-    - https://scikit-learn.org/stable/auto_examples/model_selection/plot_roc_crossval.html
-    - https://gallantlab.org/voxelwise_tutorials/notebooks/shortclips/03_compute_explainable_variance.html
-
-    Parameters
-    ----------
-    sub_name : str
-        Subject name
-    expl_var : np.arr
-        Explainable variance, as calculated using
-        .. math::
-            \\frac{1}{N}\\sum_{i=1}^N\\text{Var}(y_i) - \\frac{N}{N-1}\\sum_{i=1}^N\\text{Var}(r_i)
-    scores : np.arr
-        Scores from the encoding model calculated using the scoring metric
-    scoring_metric : str
-        Scoring metric used in encoding model scoring, must be 'r2_score' or 'correlation_score'
-
-    Returns
-    -------
-    ax : figure axis
-    """
-    if ax is None:
-        fig, ax = plt.subplots(1, 1)
-
-    bins = np.linspace(0, 1, 100)
-    ax.hist(
-        expl_var,
-        bins=bins,
-        log=True,
-        histtype="step",
-        label="Explainable variance",
-    )
-
-    mean_score = np.mean(best_scores, axis=0)
-    std_score = np.std(best_scores, axis=0)
-    score_upper = mean_score + std_score
-    score_lower = mean_score - std_score
-    upper_ci, _ = np.histogram(score_upper, bins=bins, density=False)
-    lower_ci, _ = np.histogram(score_lower, bins=bins, density=False)
-
-    ax.hist(
-        mean_score,
-        bins=bins,
-        log=True,
-        histtype="step",
-        label=(
-            "$R^2$ values" if (scoring_metric == "r2_score") else "Correlation values"
-        ),
-    )
-    ax.fill_between(
-        bins[:-1],
-        lower_ci,
-        upper_ci,
-        color="grey",
-        alpha=0.2,
-        step="post",
-        label=r"$\pm$ 1 std. dev.",
-    )
-
-    if scoring_metric == "r2_score":
-        ax.set_title(
-            f"Histogram of explainable variance and average $R^2$ for {sub_name}"
-        )
-    else:
-        ax.set_title(
-            f"Histogram of explainable variance and average correlation for {sub_name}"
-        )
-
-    ax.set_ylabel("Number of voxels")
-    ax.grid("on")
-    ax.legend()
-    return fig
 
 
 def THINGSPlus_logo(cat53_X, cat53_y):
@@ -285,539 +105,28 @@ def explainable_variance(y_matrix, bias_correction=True, do_zscore=True):
     return expl_var
 
 
-def ridgeCV_sklearn(
-    X_matrix, y_matrix, groups=None, scoring=r2_score, cv_strategy="image"
-):
-    """
-    Parameters
-    ----------
-    X_matrix : np.arr
-        Training data for stimulus embeddings.
-        Expected shape (n_samples, n_features)
-    y_matrix : np.arr
-        Training data for brain responses
-        Expected shape (n_samples, n_features, n_repeats)
-    groups : np.arr
-        Group labels for outer_cv, should correspond to image
-        identity or image categor(ies).
-        Expected shape (n_samples, )
-    scoring : Callable
-        Scoring function for estimator predictions.
-    cv_strategy : str
-    """
-    from sklearn.linear_model import RidgeCV
-
-    scaler = StandardScaler(with_mean=True, with_std=False)
-    scaler.fit_transform(X_matrix)
-    scaler.fit_transform(y_matrix)
-
-    if groups is None:
-        outer_cv = KFold(shuffle=True, random_state=0)
-    else:
-        if cv_strategy == "image":
-            outer_cv = GroupKFold(shuffle=True, random_state=0)
-        elif cv_strategy == "multilabel":
-            outer_cv = LeaveOneGroupOut()
-    alphas = np.logspace(1, 20, 20)
-    estimator = RidgeCV(
-        alphas=alphas,
-        alpha_per_target=True,
-        cv=None,
-    )
-    scorer = make_scorer(scoring)
-    sklearn.set_config(enable_metadata_routing=True)
-
-    scores = cross_validate(
-        estimator,
-        X_matrix,
-        y=y_matrix,
-        cv=outer_cv,
-        scoring=scorer,
-        params={"groups": groups} if groups is not None else None,
-        return_estimator=True,
-        return_indices=True,
-        error_score="raise",
-    )
-    return scores
-
-
-def ridgeCV_rrr(
-    X_matrix, y_matrix, ranks, groups=None, scoring=r2_score, cv_strategy="image"
-):
-    """
-    Parameters
-    ----------
-    X_matrix : np.arr
-        Training data for stimulus embeddings.
-        Expected shape (n_samples, n_features)
-    y_matrix : np.arr
-        Training data for brain responses
-        Expected shape (n_samples, n_features, n_repeats)
-    ranks : int or list of int
-        Rank(s) for the reduced-rank ridge regression estimator.
-    groups : np.arr
-        Group labels for outer_cv, should correspond to image
-        identity or image categor(ies).
-        Expected shape (n_samples, )
-    scoring : Callable
-        Scoring function for estimator predictions.
-    cv_strategy : str
-    """
-    scaler = StandardScaler(with_mean=True, with_std=False)
-    scaler.fit_transform(X_matrix)
-    scaler.fit_transform(y_matrix)
-
-    if groups is None:
-        outer_cv = KFold(shuffle=True, random_state=0)
-    else:
-        if cv_strategy in ["category", "image"]:
-            outer_cv = GroupKFold(shuffle=True, random_state=0)
-        elif cv_strategy == "multilabel":
-            outer_cv = LeaveOneGroupOut()
-    alphas = np.logspace(1, 20, 20)
-    estimator = ReducedRankRidgeRegressionCV(
-        alphas=alphas,
-        ranks=ranks,
-    )
-    scorer = make_scorer(scoring)
-    sklearn.set_config(enable_metadata_routing=True)
-
-    scores = cross_validate(
-        estimator,
-        X_matrix,
-        y=y_matrix,
-        cv=outer_cv,
-        scoring=scorer,
-        params={"groups": groups} if groups is not None else None,
-        return_estimator=True,
-        return_indices=True,
-        error_score="raise",
-    )
-    return scores
-
-
-def ridgeCV_himalaya(
-    X_matrix, y_matrix, groups=None, scoring=r2_score, cv_strategy="image"
-):
-    """
-    Parameters
-    ----------
-    X_matrix : np.arr
-        Training data for stimulus embeddings.
-        Expected shape (n_samples, n_features)
-    y_matrix : np.arr
-        Training data for brain responses
-        Expected shape (n_samples, n_features, n_repeats)
-    groups : np.arr
-        Group labels for outer_cv, should correspond to image
-        identity or image category.
-        Expected shape (n_samples, )
-    scoring : Callable
-        Scoring function for estimator predictions.
-    cv_strategy : str
-    """
-    from himalaya.backend import set_backend
-    from himalaya.ridge import RidgeCV
-
-    backend = set_backend("torch_cuda", on_error="warn")
-
-    scores = defaultdict()
-    train_indices, test_indices = [], []
-    best_scores = []
-    best_alphas = []
-
-    if groups is None:
-        outer_cv = KFold(shuffle=True, random_state=0)
-    else:
-        if cv_strategy in ["category", "image"]:
-            outer_cv = GroupKFold(shuffle=True, random_state=0)
-        elif cv_strategy == "multilabel":
-            outer_cv = LeaveOneGroupOut()
-
-    alphas = np.logspace(1, 20, 20)
-    pl = make_pipeline(
-        StandardScaler(with_mean=True, with_std=False),
-        RidgeCV(
-            alphas=alphas,
-            solver_params=dict(
-                n_targets_batch=500, n_alphas_batch=5, n_targets_batch_refit=100
-            ),
-        ),
-    )
-
-    for train_index, test_index in outer_cv.split(X_matrix, y_matrix, groups):
-        train_indices.append(train_index)
-        test_indices.append(test_index)
-
-        pl.fit(X_matrix[train_index], y_matrix[train_index])
-
-        if scoring is correlation_score:
-            y_pred = pl.predict(X_matrix[test_index])
-            best_scores.append(correlation_score(y_matrix[test_index], y_pred))
-        else:
-            best_scores.append(pl.score(X_matrix[test_index], y_matrix[test_index]))
-
-        best_alphas.append(pl[-1].best_alphas_)
-
-    scores["best_alphas"] = best_alphas
-    scores["best_scores"] = best_scores
-    scores["indices"] = {"train": train_indices, "test": test_indices}
-
-    return scores
-
-
-def ompCV_sklearn(
-    X_matrix,
-    y_matrix,
-    groups=None,
-    scoring=r2_score,
-    cv_strategy="image",
-    max_nonzero_coefs=None,
-    inner_cv=5,
-    n_jobs_outer=-1,
-    n_jobs_inner=1,
-):
-    """
-    Parameters
-    ----------
-    X_matrix : np.arr
-        Training data for stimulus embeddings.
-        Expected shape (n_samples, n_features)
-    y_matrix : np.arr
-        Training data for brain responses
-        Expected shape (n_samples, n_features, n_repeats)
-    groups : np.arr
-        Group labels for outer_cv, should correspond to image
-        identity or image categor(ies).
-        Expected shape (n_samples, )
-    scoring : Callable
-        Scoring function for estimator predictions.
-    cv_strategy : str
-    max_nonzero_coefs : int or None
-        Upper bound on sparsity level OMPCV searches over (analogous
-        to the `alphas` grid in ridge). Passed as `max_iter` to
-        OrthogonalMatchingPursuitCV. If None, defaults to sklearn's
-        default: 10% of n_features, or 5, whichever is larger.
-    inner_cv : int, cross-validation generator, iterable, or None
-        Number of folds (or splitter/iterable) used *inside*
-        OrthogonalMatchingPursuitCV to pick n_nonzero_coefs per target.
-        If None, sklearn defaults to KFold (n_splits=5). This inner CV
-        is separate from, and not group-aware with respect to,
-        outer_cv/groups.
-    n_jobs_outer : int
-        Number of jobs to run in parallel passed to MultiOutputRegressor
-        for the outer cross-validation. Parallelizes across targets
-        (voxels) for each outer fold. If -1, uses all available cores.
-    n_jobs_inner : int
-        Number of jobs to run in parallel passed to
-        OrthogonalMatchingPursuitCV for the inner cross-validation.
-        Parallelizes across the estimator's inner CV folds within a
-        single target fit. Defaults to 1 (sequential).
-    """
-    from sklearn.linear_model import OrthogonalMatchingPursuitCV
-    from sklearn.multioutput import MultiOutputRegressor
-
-    scaler = StandardScaler(with_mean=True, with_std=False)
-    scaler.fit_transform(X_matrix)
-    scaler.fit_transform(y_matrix)
-
-    if groups is None:
-        outer_cv = KFold(shuffle=True, random_state=0)
-    else:
-        if cv_strategy == "image":
-            outer_cv = GroupKFold(shuffle=True, random_state=0)
-        elif cv_strategy == "multilabel":
-            outer_cv = LeaveOneGroupOut()
-
-    base_estimator = OrthogonalMatchingPursuitCV(
-        max_iter=max_nonzero_coefs,
-        cv=inner_cv,
-        n_jobs=n_jobs_inner,
-    )
-    # OMPCV only supports single-target regression, so we wrap it to get
-    # per-target n_nonzero_coefs selection, same behavior as
-    # RidgeCV(alpha_per_target=True). Note that this is not group-aware with
-    # respect to outer_cv/groups.
-    estimator = MultiOutputRegressor(base_estimator, n_jobs=n_jobs_outer)
-
-    scorer = make_scorer(scoring)
-    sklearn.set_config(enable_metadata_routing=True)
-
-    scores = cross_validate(
-        estimator,
-        X_matrix,
-        y=y_matrix,
-        cv=outer_cv,
-        scoring=scorer,
-        params={"groups": groups} if groups is not None else None,
-        return_estimator=True,
-        return_indices=True,
-        error_score="raise",
-    )
-    return scores
-
-
-def orthogonal_mp_sklearn(
-    X_matrix,
-    y_matrix,
-    groups=None,
-    scoring=r2_score,
-    cv_strategy="image",
-    max_nonzero_coefs=None,
-    n_inner_splits=5,
-):
-    """
-    Nested cross-validation for Orthogonal Matching Pursuit with
-    an independetly chosen sparsity level for each target.
-
-    Parameters
-    ----------
-    X_matrix : np.arr
-        Training data for stimulus embeddings.
-        Expected shape (n_samples, n_features)
-    y_matrix : np.arr
-        Training data for brain responses
-        Expected shape (n_samples, n_features, n_repeats)
-    groups : np.arr
-        Group labels for outer_cv, should correspond to image
-        identity or image category.
-        Expected shape (n_samples, )
-    scoring : Callable
-        Scoring function for estimator predictions.
-    cv_strategy : str
-    max_nonzero_coefs : int or None
-        Maximum number of non-zero coefficients to consider for the
-        OMP estimator. If None, defaults to the number of features in
-        X_matrix.
-    n_inner_splits : int
-        Number of folds for the inner cross-validation to select
-        the best sparsity level. Only used if n_nonzero_coefs is None.
-    """
-    from sklearn.linear_model import orthogonal_mp
-
-    scaler = StandardScaler(with_mean=True, with_std=False)
-    scaler.fit_transform(X_matrix)
-    scaler.fit_transform(y_matrix)
-
-    if max_nonzero_coefs is None:
-        max_nonzero_coefs = X_matrix.shape[1]
-
-    # Outer CV:
-    if groups is None:
-        outer_cv = KFold(shuffle=True, random_state=0)
-    else:
-        if cv_strategy in ["category", "image"]:
-            outer_cv = GroupKFold(shuffle=True, random_state=0)
-        elif cv_strategy == "multilabel":
-            outer_cv = LeaveOneGroupOut()
-
-    scores = defaultdict(list)
-
-    # Outer loop
-    for outer_train_index, outer_test_index in outer_cv.split(
-        X_matrix, y_matrix, groups
-    ):
-        X_train = X_matrix[outer_train_index]
-        y_train = y_matrix[outer_train_index]
-        X_test = X_matrix[outer_test_index]
-        y_test = y_matrix[outer_test_index]
-
-        n_targets = y_train.shape[1]
-
-        # Inner cv
-        if groups is None:
-            inner_cv = KFold(
-                n_splits=n_inner_splits, shuffle=True, random_state=0
-            )
-            inner_groups = None
-        else:
-            inner_groups = groups[outer_train_index]
-            if cv_strategy in ["category", "image"]:
-                inner_cv = GroupKFold(
-                    n_splits=n_inner_splits, shuffle=True, random_state=0
-                )
-            elif cv_strategy == "multilabel":
-                inner_cv = LeaveOneGroupOut()
-
-        # Per target tracking
-        validation_scores = np.zeros((max_nonzero_coefs, n_targets))
-        n_inner_folds_used = np.zeros((max_nonzero_coefs, n_targets))
-
-        # Inner loop
-        for inner_train_index, inner_val_index in inner_cv.split(
-            X_train, y_train, inner_groups
-        ):
-            X_inner_train = X_train[inner_train_index]
-            y_inner_train = y_train[inner_train_index]
-            X_inner_val = X_train[inner_val_index]
-            y_inner_val = y_train[inner_val_index]
-
-            coef_path = orthogonal_mp(
-                X_inner_train,
-                y_inner_train,
-                n_nonzero_coefs=max_nonzero_coefs,
-                return_path=True,
-                precompute=True,
-            )
-            n_path = coef_path.shape[-1]
-
-            for k in range(n_path):
-                coef_k = coef_path[:, :, k]  # (n_features, n_targets)
-                y_pred_k = X_inner_val @ coef_k  # (n_val_samples, n_targets)
-                for t in range(n_targets):
-                    validation_scores[k, t] += scoring(
-                        y_inner_val[:, t], y_pred_k[:, t]
-                    )
-                    n_inner_folds_used[k, t] += 1
-
-        # Average only over folds that reached each k (guards against
-        # premature stopping)
-        with np.errstate(invalid="ignore"):
-            validation_scores = np.divide(
-                validation_scores,
-                n_inner_folds_used,
-                out=np.full_like(validation_scores, -np.inf),
-                where=n_inner_folds_used > 0,
-            )
-        best_k_per_target = (
-            validation_scores.argmax(axis=0) + 1
-        )  # (n_targets,)
-
-        # Refit, one call covers every target's own best k
-        refit_ceiling = int(best_k_per_target.max())
-        coef_path_refit = orthogonal_mp(
-            X_train,
-            y_train,
-            n_nonzero_coefs=refit_ceiling,
-            return_path=True,
-            precompute=True,
-        )
-        final_coefs = np.stack(
-            [
-                coef_path_refit[:, t, best_k_per_target[t] - 1]
-                for t in range(n_targets)
-            ],
-            axis=1,
-        )  # (n_features, n_targets)
-
-        y_pred = X_test @ final_coefs
-        per_target_test_scores = np.array(
-            [scoring(y_test[:, t], y_pred[:, t]) for t in range(n_targets)]
-        )
-
-        scores["per_target_test_scores"].append(per_target_test_scores)
-        scores["best_k_per_target"].append(best_k_per_target)
-        scores["validation_scores"].append(validation_scores)
-        scores["indices"].append(
-            dict(train=outer_train_index, test=outer_test_index)
-        )
-
-    return scores
-
-
-def omp_fixed_k_sklearn(
-    X_matrix,
-    y_matrix,
-    groups=None,
-    scoring=r2_score,
-    cv_strategy="image",
-    k_grid=None,
-    inner_cv=5,
-    group_aware_inner=False,
-    n_jobs_grid=-1
-):
-    """
-    Parameters
-    ----------
-    X_matrix : np.arr
-        Training data for stimulus embeddings.
-        Expected shape (n_samples, n_features)
-    y_matrix : np.arr
-        Training data for brain responses
-        Expected shape (n_samples, n_features, n_repeats)
-    groups : np.arr
-        Group labels for outer_cv, should correspond to image
-        identity or image categor(ies).
-        Expected shape (n_samples, )
-    scoring : Callable
-        Scoring function for estimator predictions.
-    cv_strategy : str
-    k_grid : array-like or None
-        Candidate values for n_nonzero_coefs, shared across all targets.
-        Defaults to a log spread from 1 to n_features if None.
-    inner_cv : int
-        Number of folds for the inner grid search over k, used when
-        group_aware_inner=False.
-    group_aware_inner : bool
-        If True, use a group-aware splitter (GroupKFold) for the inner
-        k-search as well, with `groups` routed through via metadata
-        routing. If False, inner search uses plain KFold(inner_cv),
-        matching the same rigor level as RidgeCV(cv=None).
-    n_jobs_grid : int
-        Number of jobs to run in parallel for the inner GridSearchCV
-        over k. Defaults to -1 (all available cores).
-    """
-    from sklearn.linear_model import OrthogonalMatchingPursuit
-    from sklearn.model_selection import GridSearchCV
-
-    n_features = X_matrix.shape[1]
-    if k_grid is None:
-        k_grid = np.unique(np.linspace(1, n_features, 20, dtype=int))
-
-    scaler = StandardScaler(with_mean=True, with_std=False)
-    scaler.fit_transform(X_matrix)
-    scaler.fit_transform(y_matrix)
-
-    if groups is None:
-        outer_cv = KFold(shuffle=True, random_state=0)
-    else:
-        if cv_strategy == "image":
-            outer_cv = GroupKFold(shuffle=True, random_state=0)
-        elif cv_strategy == "multilabel":
-            outer_cv = LeaveOneGroupOut()
-
-    scorer = make_scorer(scoring)
-    sklearn.set_config(enable_metadata_routing=True)
-
-    # Inner search over n_nonzero_coefs (k), analogous to RidgeCV's alpha
-    # search). A single OMP fit handles all targets, with one shared k
-    # across targets per fit.
-    param_grid = {"n_nonzero_coefs": k_grid}
-    if group_aware_inner:
-        inner_cv_splitter = GroupKFold(n_splits=inner_cv, shuffle=True, random_state=0)
-        inner_cv_splitter.set_split_request(groups=True)
-    else:
-        inner_cv_splitter = KFold(n_splits=inner_cv, shuffle=True, random_state=0)
-
-    estimator = GridSearchCV(
-        OrthogonalMatchingPursuit(),
-        param_grid=param_grid,
-        cv=inner_cv_splitter,
-        scoring=scorer,
-        n_jobs=n_jobs_grid,
-        error_score="raise",
-    )
-
-    scores = cross_validate(
-        estimator,
-        X_matrix,
-        y=y_matrix,
-        cv=outer_cv,
-        scoring=scorer,
-        params={"groups": groups} if groups is not None else None,
-        return_estimator=True,
-        return_indices=True,
-        error_score="raise",
-    )
-    return scores
-
-
 @click.command()
-@click.option("--sub_name", default="sub-01", help="Subject name.")
-@click.option("--roi", default=None, help="Region-of-interest")
-@click.option("--cv_strategy", default="image", help="Cross-validation strategy")
+@click.option(
+    "--sub_name",
+    type=click.Choice(["sub-01", "sub-02", "sub-03", "sub-06"]),
+    default="sub-01",
+    help="Subject identifier.",
+)
+@click.option(
+    "--roi",
+    default=None,
+    type=click.Choice([None, "EBA", "FFA", "OFA", "pSTS", "MPA", "OPA", "PPA"]),
+    help="Region-of-interest",
+)
+@click.option(
+    "--cv_strategy",
+    type=click.Choice(["image", "category", "kfold", "multilabel"]),
+    default="image",
+    help="Cross-validation strategy",
+)
 @click.option(
     "--scoring_metric",
+    type=click.Choice(["r2_score", "correlation_score"]),
     default="r2_score",
     help="Desired scoring metric. Currently only 'r2_score' and 'correlation_score' "
     "are supported.",
@@ -836,6 +145,7 @@ def omp_fixed_k_sklearn(
 @click.option(
     "--engine",
     default="himalaya",
+    type=click.Choice(["himalaya", "sklearn", "rrr", "omp"]),
     help="Engine for running encoding analyses. Must be either 'sklearn' "
     "'rrr', 'omp', or 'himalaya'. Note only the latter is GPU compatiable.",
 )
@@ -846,42 +156,20 @@ def omp_fixed_k_sklearn(
 )
 def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, space):
     """ """
-    rois = [None, "EBA", "FFA", "OFA", "pSTS", "MPA", "OPA", "PPA"]
-    if roi not in rois:
-        err_msg = f"Unrecognized ROI {roi}"
-        raise ValueError(err_msg)
-
-    sub_names = ["sub-01", "sub-02", "sub-03", "sub-06"]
-    if sub_name not in sub_names:
-        err_msg = f"Unrecognized subject {sub_name}"
-        raise ValueError(err_msg)
-
-    cv_strategies = ["image", "category", "kfold", "multilabel"]
-    if cv_strategy not in cv_strategies:
-        err_msg = f"Unrecognized cross-validation strategy {cv_strategy}"
-        raise ValueError(err_msg)
-
+    # conditional argument parsing
     if average and (cv_strategy == "image"):
         err_msg = (
             f"Cross-validation strategy {cv_strategy} is not compatible with 'average'"
         )
         raise ValueError(err_msg)
 
-    scoring_metrics = ["r2_score", "correlation_score"]
-    if scoring_metric not in scoring_metrics:
-        err_msg = f"Unrecognized scoring metric {scoring_metric}"
-        raise ValueError(err_msg)
-
-    engines = ["himalaya", "sklearn", "rrr", "omp"]
-    if engine not in engines:
-        err_msg = f"Unrecognized engine {engine}"
-        raise ValueError(err_msg)
-
+    # set scoring function callable from string
     if scoring_metric == "r2_score":
         scoring = r2_score
     if scoring_metric == "correlation_score":
         scoring = correlation_score
 
+    # load data
     X_matrix = np.load(
         Path(data_dir, "encoding-inputs", space, f"{sub_name}_stim_features.npy")
     )
@@ -1015,7 +303,7 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             best_scores = scores["best_scores"]
 
     elif engine == "omp":
-        scores = ompCV_sklearn(
+        scores = omp_fixed_k_sklearn(
             X_matrix,
             y_matrix,
             groups=groups,
@@ -1091,7 +379,7 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
         # plot stat map of scores across ROI
         if engine not in ("rrr", "omp"):
             masker = NiftiMasker(mask_img=roi_mask).fit()
-            fig = plotting.plot_stat_map(
+            fig = plot_stat_map(
                 masker.inverse_transform(np.mean(best_scores, axis=0)),
                 display_mode="z",
                 colorbar=True,
