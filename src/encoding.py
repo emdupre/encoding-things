@@ -784,14 +784,10 @@ def omp_fixed_k_sklearn(
     # across targets per fit.
     param_grid = {"n_nonzero_coefs": k_grid}
     if group_aware_inner:
-        inner_cv_splitter = GroupKFold(
-            n_splits=inner_cv, shuffle=True, random_state=0
-        )
+        inner_cv_splitter = GroupKFold(n_splits=inner_cv, shuffle=True, random_state=0)
         inner_cv_splitter.set_split_request(groups=True)
     else:
-        inner_cv_splitter = KFold(
-            n_splits=inner_cv, shuffle=True, random_state=0
-        )
+        inner_cv_splitter = KFold(n_splits=inner_cv, shuffle=True, random_state=0)
 
     estimator = GridSearchCV(
         OrthogonalMatchingPursuit(),
@@ -841,7 +837,7 @@ def omp_fixed_k_sklearn(
     "--engine",
     default="himalaya",
     help="Engine for running encoding analyses. Must be either 'sklearn' "
-    "'rrr' or 'himalaya'. Note only the latter is GPU compatiable.",
+    "'rrr', 'omp', or 'himalaya'. Note only the latter is GPU compatiable.",
 )
 @click.option(
     "--space",
@@ -876,7 +872,7 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
         err_msg = f"Unrecognized scoring metric {scoring_metric}"
         raise ValueError(err_msg)
 
-    engines = ["himalaya", "sklearn", "rrr"]
+    engines = ["himalaya", "sklearn", "rrr", "omp"]
     if engine not in engines:
         err_msg = f"Unrecognized engine {engine}"
         raise ValueError(err_msg)
@@ -1018,6 +1014,16 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             best_alphas = scores["best_alphas"]
             best_scores = scores["best_scores"]
 
+    elif engine == "omp":
+        scores = ompCV_sklearn(
+            X_matrix,
+            y_matrix,
+            groups=groups,
+            scoring=scoring,
+            cv_strategy=cv_strategy,
+        )
+        best_scores = [estim.best_score_ for estim in scores["estimator"]]
+
     if roi is None:
         roi = "wholebrain"
     if average:
@@ -1083,7 +1089,7 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
         )
     elif roi in ["EBA", "FFA", "OFA", "pSTS", "MPA", "OPA", "PPA"]:
         # plot stat map of scores across ROI
-        if engine != "rrr":
+        if engine not in ("rrr", "omp"):
             masker = NiftiMasker(mask_img=roi_mask).fit()
             fig = plotting.plot_stat_map(
                 masker.inverse_transform(np.mean(best_scores, axis=0)),
