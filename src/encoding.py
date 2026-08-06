@@ -15,7 +15,7 @@ from sklearn.preprocessing import MultiLabelBinarizer
 
 from plotting import plot_alphas_diagnostic, plot_flatmap, plot_voxel_hist
 from solvers import (
-    omp_fixed_k_sklearn,
+    ompCV_sklearn,
     orthogonal_mp_sklearn,
     ridgeCV_himalaya,
     ridgeCV_rrr,
@@ -145,9 +145,10 @@ def explainable_variance(y_matrix, bias_correction=True, do_zscore=True):
 @click.option(
     "--engine",
     default="himalaya",
-    type=click.Choice(["himalaya", "sklearn", "rrr", "omp"]),
+    type=click.Choice(["himalaya", "sklearn", "rrr", "omp", "ompCV"]),
     help="Engine for running encoding analyses. Must be either 'sklearn' "
-    "'rrr', 'omp', or 'himalaya'. Note only the latter is GPU compatiable.",
+    "'rrr', 'omp', 'ompCV' or 'himalaya'. Note only the latter is GPU "
+    "compatiable.",
 )
 @click.option(
     "--space",
@@ -303,14 +304,28 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             best_scores = scores["best_scores"]
 
     elif engine == "omp":
-        scores = omp_fixed_k_sklearn(
+        scores = orthogonal_mp_sklearn(
             X_matrix,
             y_matrix,
             groups=groups,
             scoring=scoring,
             cv_strategy=cv_strategy,
+            max_nonzero_coefs=1000,
+            inner_cv=5,
         )
-        best_scores = [estim.best_score_ for estim in scores["estimator"]]
+        best_scores = scores["per_target_test_scores"]
+
+    elif engine == "ompCV":
+        scores = ompCV_sklearn(
+            X_matrix,
+            y_matrix,
+            groups=groups,
+            scoring=scoring,
+            cv_strategy=cv_strategy,
+            max_nonzero_coefs=100,
+            inner_cv=5,
+        )
+        best_scores = scores["per_target_test_scores"]
 
     if roi is None:
         roi = "wholebrain"
