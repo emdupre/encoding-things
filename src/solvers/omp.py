@@ -53,7 +53,7 @@ def ompCV_sklearn(
         Upper bound on sparsity level OMPCV searches over (analogous
         to the `alphas` grid in ridge). Passed as `max_iter` to
         OrthogonalMatchingPursuitCV. If None, defaults to sklearn's
-        default: 10% of n_features, or 5, whichever is larger.
+        default: 10% of n_features.
     inner_cv : int, cross-validation generator, iterable, or None
         Number of folds (or splitter/iterable) used *inside*
         OrthogonalMatchingPursuitCV to pick n_nonzero_coefs per target.
