@@ -215,7 +215,7 @@ def orthogonal_mp_sklearn(
 
         # ---- Inner cv ----
         if groups is None:
-            inner_cv = KFold(n_splits=inner_cv, shuffle=True, random_state=0)
+            inner_cv = KFold(n_splits=inner_cv_splits, shuffle=True, random_state=0)
             inner_groups = None
         else:
             inner_groups = groups[outer_train_index]
