@@ -221,7 +221,7 @@ def orthogonal_mp_sklearn(
             inner_groups = groups[outer_train_index]
             if cv_strategy in ["category", "image"]:
                 inner_cv = GroupKFold(
-                    n_splits=inner_cv, shuffle=True, random_state=0
+                    n_splits=inner_cv_splits, shuffle=True, random_state=0
                 )
             elif cv_strategy == "multilabel":
                 inner_cv = LeaveOneGroupOut()
