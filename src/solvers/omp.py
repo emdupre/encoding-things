@@ -150,7 +150,7 @@ def orthogonal_mp_sklearn(
     scoring=r2_score,
     cv_strategy="image",
     max_nonzero_coefs=None,
-    inner_cv=5,
+    inner_cv_splits=5,
 ):
     """
     Nested cross-validation for Orthogonal Matching Pursuit with
