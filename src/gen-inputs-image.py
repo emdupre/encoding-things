@@ -76,7 +76,7 @@ def gen_inputs_image(sub_name, roi, space, data_dir):
     stim_vec = np.unique(stim_vec)
 
     # Load sorted image betas
-    beta_fname = f"{sub_name}_task-things_space-{space}_model-fitHrfGLMdenoiseRR_stat-imageBetas_desc-zscore_statseries.h5"
+    beta_fname = f"{sub_name}_task-things_space-{space}_model-fitHrfGLMdenoiseRR_stats-imageBetas_desc-zscore_statseries.h5"
     beta_h5 = h5py.File(Path(data_dir, "betas", beta_fname), "r")
     mask = nib.nifti1.Nifti1Image(
         np.array(beta_h5["mask_array"]), affine=np.array(beta_h5["mask_affine"])
