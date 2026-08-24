@@ -481,10 +481,10 @@ def ridgeCV_himalaya(
 def braincorl_cv(
     X_matrix,
     y_matrix,
+    checkpoint_path,
     groups=None,
     scoring=r2_score,
     cv_strategy="image",
-    checkpoint_path="checkpoints/CLIP_trained_on_s1257.pth",
 ):
     import torch
 
@@ -560,11 +560,6 @@ def braincorl_cv(
     help="Space in which to run encoding analyses. Must be either 'MNI152NLin2009cAsym' or 'T1w'.",
 )
 @click.option(
-    "--braincorl_chkpt",
-    default="checkpoints/CLIP_trained_on_s1257.pth",
-    help="Path to the BrainCoRL checkpoint file.",
-)
-@click.option(
     "--trial_averaged",
     default=False,
     help="Whether to use trial-averaged beta maps.",
@@ -578,7 +573,6 @@ def main(
     data_dir,
     engine,
     space,
-    braincorl_chkpt,
     trial_averaged,
 ):
     """ """
@@ -798,7 +792,9 @@ def main(
             groups=groups,
             scoring=scoring,
             cv_strategy=cv_strategy,
-            checkpoint_path=braincorl_chkpt,
+            checkpoint_path=Path(data_dir)
+            / "checkpoints"
+            / "CLIP_trained_on_s1257.pth",
         )
         best_scores = scores["best_scores"]
 
