@@ -503,7 +503,6 @@ def braincorl_cv(
             checkpoint_path=checkpoint_path,
             batch_size=512,
             device="cuda" if torch.cuda.is_available() else "cpu",
-            nits_bootstrap=100,
         ),
     )
 
@@ -517,13 +516,8 @@ def braincorl_cv(
 
         pl.fit(X_matrix[train_index], y_matrix[train_index])
 
-        if scoring is correlation_score:
-            y_pred = pl.predict(X_matrix[test_index])
-            best_scores.append(correlation_score(y_matrix[test_index], y_pred))
-        else:
-            best_scores.append(
-                pl.score(X_matrix[test_index], y_matrix[test_index])
-            )
+        y_pred = pl.predict(X_matrix[test_index])
+        best_scores.append(scoring(y_matrix[test_index], y_pred))
 
     scores["best_scores"] = best_scores
     scores["indices"] = {"train": train_indices, "test": test_indices}
@@ -558,7 +552,7 @@ def braincorl_cv(
     "--engine",
     default="himalaya",
     help="Engine for running encoding analyses. Must be either 'sklearn' "
-    "'rrr' or 'himalaya'. Note only the latter is GPU compatiable.",
+    "'rrr', 'braincorl' or 'himalaya'. Note only the latter two are GPU compatiable.",
 )
 @click.option(
     "--space",
