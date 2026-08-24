@@ -1,8 +1,8 @@
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from sklearn import base, metrics
+from sklearn import base
+from torch import nn
 from tqdm import tqdm
 
 
@@ -78,9 +78,7 @@ class SwigluAttentionBlock(nn.Module):
         # print('[DEBUG] attn_w.shape',attn_w.shape)      # attn_w.shape torch.Size([64, 34, 34])
 
         self.last_attn = attn_w
-        x = x + self.attn_dropout(
-            attn_output
-        )  # Apply dropout to the attention output
+        x = x + self.attn_dropout(attn_output)  # Apply dropout to the attention output
         x = x + self.ffn(self.layer_norm_2(x))
         return x
 
@@ -105,9 +103,7 @@ class ResidualBlock(nn.Module):
                 nn.Linear(
                     feat_in, feat_hidden
                 ),  # Linear layer transforming input to hidden features
-                nn.LayerNorm(
-                    feat_hidden
-                ),  # Layer normalization on hidden features
+                nn.LayerNorm(feat_hidden),  # Layer normalization on hidden features
                 nn.LeakyReLU(negative_slope=0.1),  # LeakyReLU activation
                 nn.Dropout(p=drop_out),
                 nn.Linear(
@@ -390,16 +386,14 @@ class BrainCoRL(base.BaseEstimator):
         self,
         backbone="CLIP",
         checkpoint_path="checkpoints/CLIP_trained_on_s1257.pth",
-        batch_size=512,
-        nits_bootstrap=100,
-        n_context_size=200,
+        batch_size=128,
+        n_context_size=50,
         device=None,
     ):
         self.backbone = backbone
         self.checkpoint_path = checkpoint_path
         self.batch_size = batch_size
         self.device = device
-        self.nits_bootstrap = nits_bootstrap
         self.n_context_size = n_context_size
         self.model_ = self._load_model(self._get_device())
 
@@ -409,9 +403,7 @@ class BrainCoRL(base.BaseEstimator):
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def _load_model(self, device):
-        model = HyperweightsPredictorModel(backbone_type=self.backbone).to(
-            device
-        )
+        model = HyperweightsPredictorModel(backbone_type=self.backbone).to(device)
         checkpoint = torch.load(
             self.checkpoint_path, weights_only=True, map_location=device
         )
@@ -428,8 +420,11 @@ class BrainCoRL(base.BaseEstimator):
         X : array-like, shape (n, n_features)  — image embeddings
         Y : array-like, shape (n, n_voxels)    — brain responses
         """
-        self.X_fit_ = np.asarray(X, dtype=np.float32)
-        self.Y_fit_ = np.asarray(Y, dtype=np.float32)
+        X_fit = np.asarray(X, dtype=np.float32)
+        Y_fit = np.asarray(Y, dtype=np.float32)
+        idx = np.random.choice(X_fit.shape[0], self.n_context_size, replace=False)
+        self.X_fit_ = X_fit[idx]
+        self.Y_fit_ = Y_fit[idx]
         return self
 
     def predict(self, X):
@@ -451,7 +446,6 @@ class BrainCoRL(base.BaseEstimator):
         Y_ctx = torch.from_numpy(self.Y_fit_).float().to(device)
         X_query = torch.from_numpy(unit_norm(X)).to(device)
 
-        n_context = X_ctx.shape[0]
         n_voxels = Y_ctx.shape[1]
         n_query = X_query.shape[0]
         all_preds = np.zeros((n_voxels, n_query), dtype=np.float32)
@@ -469,35 +463,12 @@ class BrainCoRL(base.BaseEstimator):
                 ic_img = X_ctx.unsqueeze(0).expand(
                     bsz, -1, -1
                 )  # (bsz, n_context, n_features)
+                q_img = X_query.unsqueeze(0).expand(
+                    bsz, -1, -1
+                )  # (bsz, n_query, n_features)
 
-                pred = torch.zeros(
-                    bsz, n_query, dtype=ic_img.dtype, device=ic_img.device
-                )
-                for _ in range(self.nits_bootstrap):
-                    indices = np.random.choice(
-                        n_context, size=self.n_context_size, replace=False
-                    )
-                    beta_ic_bootstrap = beta_ic[
-                        :, indices
-                    ]  # (bsz ,n_context_size)
-                    ic_img_bootstrap = ic_img[
-                        :, indices, :
-                    ]  # (bsz, n_context_size, n_features)
-                    q_img = X_query.unsqueeze(0).expand(
-                        bsz, -1, -1
-                    )  # (bsz, n_query, n_features)
+                pred, _ = self.model_(ic_img, beta_ic, q_img)  # (bsz, n_query)
 
-                    pred_bootstrap, _ = self.model_(
-                        ic_img_bootstrap, beta_ic_bootstrap, q_img
-                    )  # (bsz, n_query)
-                    pred += pred_bootstrap
-
-                pred /= self.nits_bootstrap
-                all_preds[v_start:v_end] = pred.cpu().numpy()
+                all_preds[v_start:v_end] = pred.cpus().numpy()
 
         return all_preds.T  # (n_query, n_voxels)
-
-    def score(self, X, Y):
-        """R² score across all voxels."""
-        Y_pred = self.predict(X)
-        return metrics.r2_score(Y, Y_pred, multioutput="raw_values")
