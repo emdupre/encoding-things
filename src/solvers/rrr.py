@@ -63,32 +63,29 @@ class ReducedRankRidgeRegressionCV(base.BaseEstimator):
         Yt, Yv = Y[: int(0.75 * n)], Y[int(0.75 * n) :]
 
         ## Finding best rank hyperparameters (2D-GridSearch)
-        score = np.zeros((self.n_alphas, self.n_ranks))
-        for i in range(self.n_alphas):
-            ## fitting the ridge on the train set
-            ridge.set_params(alpha=self.alphas[i])
-            ridge.fit(Xt, Yt)
+        score = np.zeros((self.n_ranks))
 
-            ## predicting the validation target with the trained ridge
-            Yt_pred = ridge.predict(Xt)
+        ## fitting the ridge on the train set
+        ridge.set_params(alpha=self.alphas[0])  # only one alpha for all targets
+        ridge.fit(Xt, Yt)
 
-            for j in range(self.n_ranks):
-                svd = TruncatedSVD(n_components=self.ranks[j])
-                svd.fit(Yt_pred)
-                Vr = svd.components_.T  # shape: (q, rank)
+        ## predicting the validation target with the trained ridge
+        Yt_pred = ridge.predict(Xt)
 
-                ## computing the validation score for every pair of (alpha, rank)
-                Yv_pred = ridge.predict(Xv) @ Vr @ Vr.T
-                score[i, j] = metrics.r2_score(Yv.ravel(), Yv_pred.ravel())
+        for i in range(self.n_ranks):
+            svd = TruncatedSVD(n_components=self.ranks[i])
+            svd.fit(Yt_pred)
+            Vr = svd.components_.T  # shape: (q, rank)
 
-        idx_opt_alpha, idx_opt_rank = np.where(score == np.max(score))
-        idx_opt_alpha, idx_opt_rank = int(idx_opt_alpha), int(idx_opt_rank)
-        self.alpha_ = self.alphas[idx_opt_alpha]
+            ## computing the validation score for every pair of (alpha, rank)
+            Yv_pred = ridge.predict(Xv) @ Vr @ Vr.T
+            score[i] = metrics.r2_score(Yv.ravel(), Yv_pred.ravel())
+
+        idx_opt_rank = np.argmax(score)
         self.rank_ = self.ranks[idx_opt_rank]
-        self.best_score_ = score[idx_opt_alpha, idx_opt_rank]
+        self.best_score_ = score[idx_opt_rank]
 
         ## Re-Computing the optimal regressions coefficents for the RRRR on full data
-        ridge.set_params(alpha=self.alpha_)
         ridge.fit(X, Y)
         svd = TruncatedSVD(n_components=self.rank_)
         svd.fit(ridge.predict(X))
@@ -161,7 +158,8 @@ def ridgeCV_rrr(
             outer_cv = GroupKFold(shuffle=True, random_state=0)
         elif cv_strategy == "multilabel":
             outer_cv = LeaveOneGroupOut()
-    alphas = np.logspace(1, 20, 20)
+    # alphas = np.logspace(1, 20, 20)
+    alphas = np.array([100])
     estimator = ReducedRankRidgeRegressionCV(
         alphas=alphas,
         ranks=ranks,

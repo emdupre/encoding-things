@@ -13,8 +13,8 @@ from nilearn.plotting import plot_stat_map
 from sklearn.metrics import r2_score
 from sklearn.preprocessing import MultiLabelBinarizer
 
-from plotting import plot_alphas_diagnostic, plot_flatmap, plot_voxel_hist
-from solvers import (
+from src.plotting import plot_alphas_diagnostic, plot_flatmap, plot_voxel_hist
+from src.solvers import (
     ompCV_sklearn,
     orthogonal_mp_sklearn,
     ridgeCV_himalaya,
