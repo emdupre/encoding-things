@@ -2,6 +2,7 @@ from collections import defaultdict
 
 import numpy as np
 import sklearn
+from himalaya.metrics import correlation_score
 from sklearn.linear_model import (
     OrthogonalMatchingPursuit,
     OrthogonalMatchingPursuitCV,
@@ -90,38 +91,57 @@ def ompCV_sklearn(
     # per-target n_nonzero_coefs selection. Note that this is not group-aware
     # with respect to outer_cv/groups.
     estimator = MultiOutputRegressor(base_estimator, n_jobs=n_jobs_outer)
-
-    scorer = make_scorer(scoring)
     sklearn.set_config(enable_metadata_routing=True)
 
-    scores = cross_validate(
-        estimator,
-        X_matrix,
-        y=y_matrix,
-        cv=outer_cv,
-        scoring=scorer,
-        params={"groups": groups} if groups is not None else None,
-        return_estimator=True,
-        return_indices=True,
-        error_score="raise",
-    )
+    if scoring is r2_score:
+        scorer = make_scorer(scoring)
+        scores = cross_validate(
+            estimator,
+            X_matrix,
+            y=y_matrix,
+            cv=outer_cv,
+            scoring=scorer,
+            params={"groups": groups} if groups is not None else None,
+            return_estimator=True,
+            return_indices=True,
+            error_score="raise",
+        )
+    elif scoring is correlation_score:
+        scores = cross_validate(
+            estimator,
+            X_matrix,
+            y=y_matrix,
+            cv=outer_cv,
+            params={"groups": groups} if groups is not None else None,
+            return_estimator=True,
+            return_indices=True,
+            error_score="raise",
+        )
 
-    # Reconstruct per-target scores from the fitted estimators and indices,
-    # since cross_validate only returns a single score per fold.
-    best_scores = []
+    # Reconstruct per-target scores from the outer folds, since cross_validate
+    # only returns a single score per fold.
+    per_target_scores = []
     for fold_idx, fitted_estimator in enumerate(scores["estimator"]):
         test_idx = scores["indices"]["test"][fold_idx]
         X_test_fold = X_matrix[test_idx]
         y_test_fold = y_matrix[test_idx]
         y_pred_fold = fitted_estimator.predict(X_test_fold)
-        fold_scores = np.array(
-            [
-                scoring(y_test_fold[:, t], y_pred_fold[:, t])
-                for t in range(y_test_fold.shape[1])
-            ]
-        )
-        best_scores.append(fold_scores)
-    scores.update({"per_target_test_scores": best_scores})
+
+        if scoring is r2_score:
+            fold_scores = r2_score(
+                y_test_fold, y_pred_fold, multioutput="raw_values"
+            )
+        elif scoring is correlation_score:
+            fold_scores = np.asarray(
+                correlation_score(y_test_fold, y_pred_fold)
+            )
+
+        per_target_scores.append(fold_scores)
+
+    per_target_scores = np.stack(
+        per_target_scores, axis=0
+    )  # (n_folds, n_targets)
+    scores.update({"per_target_test_scores": per_target_scores})
     return scores
 
 
@@ -215,7 +235,9 @@ def orthogonal_mp_sklearn(
 
         # ---- Inner cv ----
         if groups is None:
-            inner_cv = KFold(n_splits=inner_cv_splits, shuffle=True, random_state=0)
+            inner_cv = KFold(
+                n_splits=inner_cv_splits, shuffle=True, random_state=0
+            )
             inner_groups = None
         else:
             inner_groups = groups[outer_train_index]
