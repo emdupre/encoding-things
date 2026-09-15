@@ -67,18 +67,16 @@ def ridgeCV_sklearn(
 
     # Note that we cannot use cross_validate with multiouput scoring ;
     # see https://github.com/scikit-learn/scikit-learn/issues/25666
-    for i, (train_index, test_index) in enumerate(
-        outer_cv.split(X_matrix, y_matrix, groups)
-    ):
+    for train_index, test_index in outer_cv.split(X_matrix, y_matrix, groups):
         pl.fit(X_matrix[train_index], y_matrix[train_index])
         y_pred = pl.predict(X_matrix[test_index])
-        score = r2_score(
-            StandardScaler(with_mean=True, with_std=False).fit_transform(
-                y_matrix[test_index]
-            ),
-            y_pred,
-            multioutput="raw_values",
+        y_true = StandardScaler(with_mean=True, with_std=False).fit_transform(
+            y_matrix[test_index]
         )
+        if scoring is r2_score:
+            score = r2_score(y_true, y_pred, multioutput="raw_values")
+        elif scoring is correlation_score:
+            score = correlation_score(y_true, y_pred)
 
         best_scores.append(score)
         best_alphas.append(pl[-1].alpha_)
