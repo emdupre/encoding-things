@@ -2,7 +2,7 @@ from collections import defaultdict
 
 import numpy as np
 import sklearn
-from himalaya.metrics import correlation_score
+from himalaya.scoring import correlation_score
 from sklearn.linear_model import (
     OrthogonalMatchingPursuit,
     OrthogonalMatchingPursuitCV,
@@ -128,19 +128,13 @@ def ompCV_sklearn(
         y_pred_fold = fitted_estimator.predict(X_test_fold)
 
         if scoring is r2_score:
-            fold_scores = r2_score(
-                y_test_fold, y_pred_fold, multioutput="raw_values"
-            )
+            fold_scores = r2_score(y_test_fold, y_pred_fold, multioutput="raw_values")
         elif scoring is correlation_score:
-            fold_scores = np.asarray(
-                correlation_score(y_test_fold, y_pred_fold)
-            )
+            fold_scores = np.asarray(correlation_score(y_test_fold, y_pred_fold))
 
         per_target_scores.append(fold_scores)
 
-    per_target_scores = np.stack(
-        per_target_scores, axis=0
-    )  # (n_folds, n_targets)
+    per_target_scores = np.stack(per_target_scores, axis=0)  # (n_folds, n_targets)
     scores.update({"per_target_test_scores": per_target_scores})
     return scores
 
@@ -235,9 +229,7 @@ def orthogonal_mp_sklearn(
 
         # ---- Inner cv ----
         if groups is None:
-            inner_cv = KFold(
-                n_splits=inner_cv_splits, shuffle=True, random_state=0
-            )
+            inner_cv = KFold(n_splits=inner_cv_splits, shuffle=True, random_state=0)
             inner_groups = None
         else:
             inner_groups = groups[outer_train_index]
