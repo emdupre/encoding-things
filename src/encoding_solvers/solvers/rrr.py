@@ -1,15 +1,17 @@
+from collections import defaultdict
+
 import numpy as np
-import sklearn
+from himalaya.scoring import correlation_score
 from sklearn import base, metrics
 from sklearn.decomposition import TruncatedSVD
 from sklearn.linear_model import Ridge
-from sklearn.metrics import make_scorer, r2_score
 from sklearn.model_selection import (
     GroupKFold,
     KFold,
     LeaveOneGroupOut,
-    cross_validate,
+    # cross_validate,
 )
+from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 
@@ -98,7 +100,7 @@ class ReducedRankRidgeRegressionCV(base.BaseEstimator):
 
     def score(self, X, y):
         y_pred = self.predict(X)
-        return metrics.r2_score(y.ravel(), y_pred.ravel())
+        return metrics.r2_score(y.ravel(), y_pred.ravel(), multioutput="raw_values")
 
     def eval(self, y_pred, y_true):
         return self.corr(y_pred, y_true)
@@ -126,7 +128,12 @@ class ReducedRankRidgeRegressionCV(base.BaseEstimator):
 
 
 def ridgeCV_rrr(
-    X_matrix, y_matrix, ranks, groups=None, scoring=r2_score, cv_strategy="image"
+    X_matrix,
+    y_matrix,
+    ranks,
+    groups=None,
+    scoring=metrics.r2_score,
+    cv_strategy="image",
 ):
     """
     Parameters
@@ -147,9 +154,10 @@ def ridgeCV_rrr(
         Scoring function for estimator predictions.
     cv_strategy : str
     """
-    scaler = StandardScaler(with_mean=True, with_std=False)
-    scaler.fit_transform(X_matrix)
-    scaler.fit_transform(y_matrix)
+    scores = defaultdict()
+    train_indices, test_indices = [], []
+    best_scores = []
+    best_ranks = []
 
     if groups is None:
         outer_cv = KFold(shuffle=True, random_state=0)
@@ -158,24 +166,36 @@ def ridgeCV_rrr(
             outer_cv = GroupKFold(shuffle=True, random_state=0)
         elif cv_strategy == "multilabel":
             outer_cv = LeaveOneGroupOut()
-    # alphas = np.logspace(1, 20, 20)
-    alphas = np.array([100])
-    estimator = ReducedRankRidgeRegressionCV(
-        alphas=alphas,
-        ranks=ranks,
-    )
-    scorer = make_scorer(scoring)
-    sklearn.set_config(enable_metadata_routing=True)
 
-    scores = cross_validate(
-        estimator,
-        X_matrix,
-        y=y_matrix,
-        cv=outer_cv,
-        scoring=scorer,
-        params={"groups": groups} if groups is not None else None,
-        return_estimator=True,
-        return_indices=True,
-        error_score="raise",
+    alphas = np.array([100])
+    pl = make_pipeline(
+        StandardScaler(with_mean=True, with_std=False),
+        ReducedRankRidgeRegressionCV(
+            alphas=alphas,
+            ranks=ranks,
+        ),
     )
+
+    for train_index, test_index in outer_cv.split(X_matrix, y_matrix, groups):
+        X_train, X_test = X_matrix[train_index], X_matrix[test_index]
+        y_train, y_test = y_matrix[train_index], y_matrix[test_index]
+
+        pl.fit(X_train, y_train)
+        y_pred = pl.predict(X_test)
+        y_true = StandardScaler(with_mean=True, with_std=False).fit_transform(
+            y_matrix[test_index]
+        )
+
+        if scoring is metrics.r2_score:
+            score = metrics.r2_score(y_true, y_pred, multioutput="raw_values")
+        elif scoring is correlation_score:
+            score = correlation_score(y_true, y_pred)
+
+        best_scores.append(score)
+        best_ranks.append(pl[-1].rank_)
+
+    scores["best_ranks"] = best_ranks
+    scores["best_scores"] = best_scores
+    scores["indices"] = {"train": train_indices, "test": test_indices}
+
     return scores

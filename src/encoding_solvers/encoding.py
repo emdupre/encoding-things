@@ -252,8 +252,8 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             scoring=scoring,
             cv_strategy=cv_strategy,
         )
-        best_alphas = [estim.alpha_ for estim in scores["estimator"]]
-        best_scores = [estim.best_score_ for estim in scores["estimator"]]
+        best_ranks = [best_rank_ for best_rank_ in scores["best_ranks"]]
+        best_scores = [best_score_ for best_score_ in scores["best_scores"]]
 
     elif engine == "himalaya":
         scores = ridgeCV_himalaya(
