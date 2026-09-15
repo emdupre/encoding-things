@@ -268,10 +268,8 @@ def orthogonal_mp_sklearn(
 
             # Fresh preprocessing per inner fold -- fit on inner-train only,
             # to avoid inner-val rows leaking into the centering/scaling stats
-            X_inner_train, y_inner_train, (X_inner_val,) = (
-                _center_and_normalize(
-                    X_inner_train_raw, y_inner_train_raw, X_inner_val_raw
-                )
+            X_inner_train, y_inner_train, (X_inner_val,) = _center_and_normalize(
+                X_inner_train_raw, y_inner_train_raw, X_inner_val_raw
             )
             y_inner_val = y_inner_val_raw - y_inner_train_raw.mean(axis=0)
 
@@ -333,10 +331,7 @@ def orthogonal_mp_sklearn(
 
         # For each target, get its own best k (indexing only)
         final_coefs = np.stack(
-            [
-                coef_path_refit[:, t, best_k_per_target[t] - 1]
-                for t in range(n_targets)
-            ],
+            [coef_path_refit[:, t, best_k_per_target[t] - 1] for t in range(n_targets)],
             axis=1,
         )  # (n_features, n_targets)
 
@@ -350,9 +345,7 @@ def orthogonal_mp_sklearn(
         scores["per_target_test_scores"].append(per_target_test_scores)
         scores["best_k_per_target"].append(best_k_per_target)
         scores["validation_scores"].append(validation_scores)
-        scores["indices"].append(
-            dict(train=outer_train_index, test=outer_test_index)
-        )
+        scores["indices"].append(dict(train=outer_train_index, test=outer_test_index))
     return scores
 
 
@@ -422,14 +415,10 @@ def omp_fixed_k_sklearn(
     # across targets per fit.
     param_grid = {"n_nonzero_coefs": k_grid}
     if group_aware_inner:
-        inner_cv_splitter = GroupKFold(
-            n_splits=inner_cv, shuffle=True, random_state=0
-        )
+        inner_cv_splitter = GroupKFold(n_splits=inner_cv, shuffle=True, random_state=0)
         inner_cv_splitter.set_split_request(groups=True)
     else:
-        inner_cv_splitter = KFold(
-            n_splits=inner_cv, shuffle=True, random_state=0
-        )
+        inner_cv_splitter = KFold(n_splits=inner_cv, shuffle=True, random_state=0)
 
     estimator = GridSearchCV(
         OrthogonalMatchingPursuit(),

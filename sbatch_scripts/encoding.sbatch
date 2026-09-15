@@ -18,7 +18,7 @@ engine='himalaya'
 echo "Now running : "
 echo apptainer exec --nv $PROJECT/things-apptainer.sif \
     bash -c "source /.venv/bin/activate ; "\
-    "uv run python ${PROJECT}/encoding-templates/src/encoding.py "\
+    "uv run python encoding_experiment "\
     "--sub_name=${subjects[$SLURM_ARRAY_TASK_ID]}" \
     "--data_dir=${PROJECT}" \
     "--average" \
@@ -28,7 +28,7 @@ echo " "
 
 apptainer exec --nv $PROJECT/things-apptainer.sif \
     bash -c "source /.venv/bin/activate ; \
-    uv run python ${PROJECT}/encoding-templates/src/encoding.py \
+    uv run python encoding_experiment \
     --sub_name=${subjects[$SLURM_ARRAY_TASK_ID]} \
     --data_dir=${PROJECT} \
     --average \

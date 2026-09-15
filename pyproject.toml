@@ -1,0 +1,31 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools"]
+
+[project]
+authors = [
+    {name = "Elizabeth DuPre"},
+    {name = "Ana Fernanda Ponce "},
+    {name = "Pierre-Louis Barbarant"}
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Programming Language :: Python"
+]
+dependencies = [
+    "click",
+    "h5py",
+    "himalaya",
+    "nilearn[plotting]",
+    "numpy",
+    "scikit-learn",
+    "pycortex"
+]
+license = "MIT"
+name = "encoding_solvers"
+readme = "README.md"
+requires-python = ">= 3.11"
+version = "0.0.1"
+
+[project.scripts]
+encoding_experiment = "encoding_solvers:encoding.main"

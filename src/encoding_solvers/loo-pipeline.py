@@ -2,9 +2,9 @@ from pathlib import Path
 
 import click
 import numpy as np
-from nilearn.maskers import NiftiMasker
 from fmralign import GroupAlignment, PairwiseAlignment
 from fmralign.embeddings.parcellation import get_labels
+from nilearn.maskers import NiftiMasker
 
 
 def alignment(mask_img):

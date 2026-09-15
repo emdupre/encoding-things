@@ -1,12 +1,12 @@
 # encoding-templates
 
-Experiments with encoding models in the THINGS dataset.
+Experiments with different encoding solvers in the THINGS dataset.
 
 
 ## Running on HPCs
 
 Note that these analyses benefit from GPU availability;
-as such, there is a containerized workflow tailed to 
+as such, there is a containerized workflow tailed to
 [Alliance Canada](https://www.alliancecan.ca/)'s [Rorqual cluster](https://docs.alliancecan.ca/wiki/Rorqual/).
 
 To re-generate the supporting Apptainer image:
@@ -32,5 +32,5 @@ apptainer test --nv things-apptainer.sif
 the actual analyses can be re-launched using:
 
 ```
-sbatch encoding.sbatch
+sbatch sbatch_scripts/encoding.sbatch
 ```

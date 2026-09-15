@@ -1,12 +1,12 @@
 from pathlib import Path
 
 import ants
-import h5py
 import click
+import h5py
 import joblib
-import numpy as np
 import nibabel as nib
-from nilearn import masking, maskers
+import numpy as np
+from nilearn import maskers, masking
 from templateflow import api as tflow
 
 

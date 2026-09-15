@@ -13,54 +13,19 @@ from nilearn.plotting import plot_stat_map
 from sklearn.metrics import r2_score
 from sklearn.preprocessing import MultiLabelBinarizer
 
-from src.plotting import plot_alphas_diagnostic, plot_flatmap, plot_voxel_hist
-from src.solvers import (
+from encoding_solvers.cross_validation import leave_one_THINGSplus_out
+from encoding_solvers.plotting import (
+    plot_alphas_diagnostic,
+    plot_flatmap,
+    plot_voxel_hist,
+)
+from encoding_solvers.solvers import (
     ompCV_sklearn,
     orthogonal_mp_sklearn,
     ridgeCV_himalaya,
     ridgeCV_rrr,
     ridgeCV_sklearn,
 )
-
-
-def THINGSPlus_logo(cat53_X, cat53_y):
-    """
-    Parameters
-    ----------
-    sub_name : str
-        Subject name
-    data_dir : str
-
-    Returns
-    -------
-    X : np.arr
-    y : np.arr
-    groups : np.arr
-
-    Note
-    ----
-    The resulting train, test splits will be of unequal sizes ;
-    that is, images that are not labelled "animal" may also be not labelled
-    "breakfast food," and so assigned to the training split multiple times.
-    The resulting distribution of labels is known to have a significant
-    rightward-skew given the pre-existing label distribution (i.e., the category
-    "animal" is more likely to occur overall).
-    """
-    groups = []
-    X = []
-    y_idx = []
-    for grp_lbl in range(53):
-        for idx, (y_, X_) in enumerate(zip(cat53_y, cat53_X)):
-            if y_[grp_lbl] == 1:
-                X.append(X_)
-                y_idx.append(idx)
-                groups.append(grp_lbl + 1)
-
-    X = np.asarray(X)
-    y_idx = np.asarray(y_idx)
-    groups = np.asarray(groups)
-
-    return X, y_idx, groups
 
 
 def explainable_variance(y_matrix, bias_correction=True, do_zscore=True):
@@ -249,7 +214,7 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             mlb = MultiLabelBinarizer().fit(cat53_dense_labels_)
             cat53_y = mlb.transform(cat53_dense_labels_)
 
-            X_matrix, y_idx, groups = THINGSPlus_logo(cat53_X, cat53_y)
+            X_matrix, y_idx, groups = leave_one_THINGSplus_out(cat53_X, cat53_y)
             y_matrix = y_matrix[cat53_stim_mask_][y_idx]
     ####################################
     # FIXME
@@ -275,8 +240,9 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             scoring=scoring,
             cv_strategy=cv_strategy,
         )
-        best_alphas = [estim.alpha_ for estim in scores["estimator"]]
-        best_scores = [estim.best_score_ for estim in scores["estimator"]]
+        best_alphas = [best_alpha_ for best_alpha_ in scores["best_alphas"]]
+        best_scores = [best_score_ for best_score_ in scores["best_scores"]]
+
     elif engine == "rrr":
         scores = ridgeCV_rrr(
             X_matrix,
@@ -288,6 +254,7 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
         )
         best_alphas = [estim.alpha_ for estim in scores["estimator"]]
         best_scores = [estim.best_score_ for estim in scores["estimator"]]
+
     elif engine == "himalaya":
         scores = ridgeCV_himalaya(
             X_matrix,

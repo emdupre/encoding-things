@@ -2,18 +2,18 @@ import json
 from pathlib import Path
 
 import numpy as np
-from sklearn.svm import LinearSVC
-from sklearn.multioutput import ClassifierChain
-from sklearn.multiclass import OneVsRestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import MultiLabelBinarizer
 from sklearn.metrics import (
     accuracy_score,
-    zero_one_loss,
     jaccard_score,
     multilabel_confusion_matrix,
+    zero_one_loss,
 )
+from sklearn.model_selection import train_test_split
+from sklearn.multiclass import OneVsRestClassifier
+from sklearn.multioutput import ClassifierChain
+from sklearn.preprocessing import MultiLabelBinarizer
+from sklearn.svm import LinearSVC
 
 
 def pred_image_categories(sub_name, data_dir):
