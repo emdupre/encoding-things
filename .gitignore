@@ -105,3 +105,6 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
+data/
+.zed/
+checkpoints/
