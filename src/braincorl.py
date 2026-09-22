@@ -384,8 +384,8 @@ class BrainCoRL(base.BaseEstimator):
 
     def __init__(
         self,
+        checkpoint_path,
         backbone="CLIP",
-        checkpoint_path="checkpoints/CLIP_trained_on_s1257.pth",
         batch_size=128,
         n_context_size=50,
         device=None,
