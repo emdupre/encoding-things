@@ -20,6 +20,7 @@ from encoding_solvers.plotting import (
     plot_voxel_hist,
 )
 from encoding_solvers.solvers import (
+    ompCV_ridge_sklearn,
     ompCV_sklearn,
     orthogonal_mp_sklearn,
     ridgeCV_himalaya,
@@ -110,10 +111,12 @@ def explainable_variance(y_matrix, bias_correction=True, do_zscore=True):
 @click.option(
     "--engine",
     default="himalaya",
-    type=click.Choice(["himalaya", "sklearn", "rrr", "omp", "ompCV"]),
+    type=click.Choice(
+        ["himalaya", "sklearn", "rrr", "omp", "ompCV", "ompCV_ridge"]
+    ),
     help="Engine for running encoding analyses. Must be either 'sklearn' "
-    "'rrr', 'omp', 'ompCV' or 'himalaya'. Note only the latter is GPU "
-    "compatiable.",
+    "'rrr', 'omp', 'ompCV', 'ompCV_ridge' or 'himalaya'. Note only the latter"
+    "is GPU compatiable.",
 )
 @click.option(
     "--space",
@@ -284,6 +287,18 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
 
     elif engine == "ompCV":
         scores = ompCV_sklearn(
+            X_matrix,
+            y_matrix,
+            groups=groups,
+            scoring=scoring,
+            cv_strategy=cv_strategy,
+            max_nonzero_coefs=100,
+            inner_cv=5,
+        )
+        best_scores = scores["per_target_test_scores"]
+
+    elif engine == "ompCV_ridge":
+        scores = ompCV_ridge_sklearn(
             X_matrix,
             y_matrix,
             groups=groups,
