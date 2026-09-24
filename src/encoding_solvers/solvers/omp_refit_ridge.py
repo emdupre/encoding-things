@@ -77,19 +77,19 @@ class OMPSelectRidge(BaseEstimator, RegressorMixin):
         if support.size > 0:
             ridge.fit(X[:, support], y)
         else:
-            # OMP selected nothing for this target; fall back to an
-            # intercept-only model (To be discussed)
-            ridge.fit(np.zeros((X.shape[0], 1)), y)
+            # OMP selected nothing for this target; fall back to a full
+            # ridge fir on all features.
             warn(
                 "OMP selected no features for this target; "
-                "falling back to intercept-only RidgeCV."
+                "falling back to RidgeCV on all features."
             )
+            ridge.fit(X, y)
         self.ridge_ = ridge
         return self
 
     def predict(self, X):
         if self.support_.size == 0:
-            return np.full(X.shape[0], self.ridge_.intercept_)
+            return self.ridge_.predict(X)
         return self.ridge_.predict(X[:, self.support_])
 
 
