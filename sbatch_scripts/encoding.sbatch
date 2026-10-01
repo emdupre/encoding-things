@@ -13,27 +13,27 @@ nvidia-smi
 PROJECT=$HOME/links/projects/rrg-pbellec/emdupre/things.betas
 subjects=("sub-01" "sub-02" "sub-03" "sub-06")
 cv_strategy='kfold'
-engine='himalaya'
+solver='sklearn'
 
 echo "Now running : "
 echo apptainer exec --nv $PROJECT/things-apptainer.sif \
     bash -c "source /.venv/bin/activate ; "\
-    "uv run python encoding_experiment "\
+    "uv run encoding_experiment "\
     "--sub_name=${subjects[$SLURM_ARRAY_TASK_ID]}" \
     "--data_dir=${PROJECT}" \
-    "--average" \
     "--cv_strategy=${cv_strategy}" \
-    "--engine=${engine}"
+    "--solver=${solver}" \
+    "--data_percentage=${percent}"
 echo " "
 
 apptainer exec --nv $PROJECT/things-apptainer.sif \
     bash -c "source /.venv/bin/activate ; \
-    uv run python encoding_experiment \
+    uv run encoding_experiment \
     --sub_name=${subjects[$SLURM_ARRAY_TASK_ID]} \
     --data_dir=${PROJECT} \
-    --average \
     --cv_strategy=${cv_strategy} \
-    --engine=${engine}"
+    --solver=${solver}" \
+    "--data_percentage=${percent}"
 
 
 # echo ${subjects[$SLURM_ARRAY_TASK_ID]}
@@ -43,4 +43,4 @@ apptainer exec --nv $PROJECT/things-apptainer.sif \
 #     --data_dir=$PROJECT \
 #     --average \
 #     --cv_strategy=${cv_strategy} \
-#     --engine=${engine}
+#     --solver=${solver}

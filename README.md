@@ -2,6 +2,20 @@
 
 Experiments with different encoding solvers in the THINGS dataset.
 
+## Running experiments
+
+To run experiments, we recommend using the defined entrypoint `encoding_experiment`.
+For example, to run a local analysis of Reduced-Rank Ridge solver performance in the
+pre-defined EBA ROI of sub-01:
+
+.. code-block::
+
+    $ pip install -e .
+    $ encoding_experiment --sub_name="sub-01" --roi="EBA" \
+        --cv_strategy="kfold" --scoring_metric="r2_score" \
+        --solver="rrr" \
+        --data_dir="/Users/emdupre/Desktop/UdeM-Projects/things-encode"
+
 
 ## Running on HPCs
 

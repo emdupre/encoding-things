@@ -1,14 +1,13 @@
 from collections import defaultdict
+from time import perf_counter
 
 import numpy as np
-import sklearn
 from himalaya.scoring import correlation_score
-from sklearn.metrics import make_scorer, r2_score
+from sklearn.metrics import r2_score
 from sklearn.model_selection import (
     GroupKFold,
     KFold,
     LeaveOneGroupOut,
-    cross_validate,
 )
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
@@ -44,7 +43,7 @@ def ridgeCV_sklearn(
 
     scores = defaultdict()
     train_indices, test_indices = [], []
-    best_scores = []
+    test_scores = []
     best_alphas = []
 
     if groups is None:
@@ -68,6 +67,11 @@ def ridgeCV_sklearn(
     # Note that we cannot use cross_validate with multiouput scoring ;
     # see https://github.com/scikit-learn/scikit-learn/issues/25666
     for train_index, test_index in outer_cv.split(X_matrix, y_matrix, groups):
+        start_time = perf_counter()
+
+        train_indices.append(train_index)
+        test_indices.append(test_index)
+
         pl.fit(X_matrix[train_index], y_matrix[train_index])
         y_pred = pl.predict(X_matrix[test_index])
         y_true = StandardScaler(with_mean=True, with_std=False).fit_transform(
@@ -78,11 +82,14 @@ def ridgeCV_sklearn(
         elif scoring is correlation_score:
             score = correlation_score(y_true, y_pred)
 
-        best_scores.append(score)
+        test_scores.append(score)
         best_alphas.append(pl[-1].alpha_)
 
-    scores["best_alphas"] = best_alphas
-    scores["best_scores"] = best_scores
+        fit_time = perf_counter() - start_time
+
+    scores["fit_time"] = fit_time
+    scores["per_target_test_scores"] = test_scores
+    scores["alphas"] = best_alphas
     scores["indices"] = {"train": train_indices, "test": test_indices}
     return scores
 
@@ -114,7 +121,7 @@ def ridgeCV_himalaya(
 
     scores = defaultdict()
     train_indices, test_indices = [], []
-    best_scores = []
+    test_scores = []
     best_alphas = []
 
     if groups is None:
@@ -137,6 +144,8 @@ def ridgeCV_himalaya(
     )
 
     for train_index, test_index in outer_cv.split(X_matrix, y_matrix, groups):
+        start_time = perf_counter()
+
         train_indices.append(train_index)
         test_indices.append(test_index)
 
@@ -144,14 +153,17 @@ def ridgeCV_himalaya(
 
         if scoring is correlation_score:
             y_pred = pl.predict(X_matrix[test_index])
-            best_scores.append(correlation_score(y_matrix[test_index], y_pred))
+            test_scores.append(correlation_score(y_matrix[test_index], y_pred))
         else:
-            best_scores.append(pl.score(X_matrix[test_index], y_matrix[test_index]))
+            test_scores.append(pl.score(X_matrix[test_index], y_matrix[test_index]))
 
         best_alphas.append(pl[-1].best_alphas_)
 
-    scores["best_alphas"] = best_alphas
-    scores["best_scores"] = best_scores
+        fit_time = perf_counter() - start_time
+
+    scores["fit_time"] = fit_time
+    scores["alphas"] = best_alphas
+    scores["per_target_test_scores"] = test_scores
     scores["indices"] = {"train": train_indices, "test": test_indices}
 
     return scores

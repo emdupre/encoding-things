@@ -1,4 +1,5 @@
 from collections import defaultdict
+from time import perf_counter
 
 import numpy as np
 from himalaya.scoring import correlation_score
@@ -9,7 +10,6 @@ from sklearn.model_selection import (
     GroupKFold,
     KFold,
     LeaveOneGroupOut,
-    # cross_validate,
 )
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
@@ -156,7 +156,7 @@ def ridgeCV_rrr(
     """
     scores = defaultdict()
     train_indices, test_indices = [], []
-    best_scores = []
+    test_scores = []
     best_ranks = []
 
     if groups is None:
@@ -177,25 +177,30 @@ def ridgeCV_rrr(
     )
 
     for train_index, test_index in outer_cv.split(X_matrix, y_matrix, groups):
+        start_time = perf_counter()
+
+        train_indices.append(train_index)
+        test_indices.append(test_index)
+
         X_train, X_test = X_matrix[train_index], X_matrix[test_index]
         y_train, y_test = y_matrix[train_index], y_matrix[test_index]
 
         pl.fit(X_train, y_train)
         y_pred = pl.predict(X_test)
-        y_true = StandardScaler(with_mean=True, with_std=False).fit_transform(
-            y_matrix[test_index]
-        )
+        y_true = StandardScaler(with_mean=True, with_std=False).fit_transform(y_test)
 
         if scoring is metrics.r2_score:
             score = metrics.r2_score(y_true, y_pred, multioutput="raw_values")
         elif scoring is correlation_score:
             score = correlation_score(y_true, y_pred)
 
-        best_scores.append(score)
+        test_scores.append(score)
         best_ranks.append(pl[-1].rank_)
+        fit_time = perf_counter() - start_time
 
-    scores["best_ranks"] = best_ranks
-    scores["best_scores"] = best_scores
+    scores["fit_time"] = fit_time
+    scores["ranks"] = best_ranks
+    scores["per_target_test_scores"] = test_scores
     scores["indices"] = {"train": train_indices, "test": test_indices}
 
     return scores
