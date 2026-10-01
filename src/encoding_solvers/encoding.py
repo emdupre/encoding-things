@@ -1,29 +1,16 @@
-import json
 import pickle
 from pathlib import Path
 
 import click
-import matplotlib.pyplot as plt
-import nibabel as nib
 import numpy as np
 import scipy
 from himalaya.scoring import correlation_score
-from nilearn.maskers import NiftiMasker
-from nilearn.plotting import plot_stat_map
 from sklearn.metrics import r2_score
-from sklearn.preprocessing import MultiLabelBinarizer
 
-from encoding_solvers.cross_validation import leave_one_THINGSplus_out
-from encoding_solvers.plotting import (
-    plot_alphas_diagnostic,
-    plot_flatmap,
-    plot_voxel_hist,
-)
+from encoding_solvers.cross_validation import define_groups
 from encoding_solvers.solvers import (
     ompCV_ridge_sklearn,
     ompCV_sklearn,
-    orthogonal_mp_sklearn,
-    ridgeCV_himalaya,
     ridgeCV_rrr,
     ridgeCV_sklearn,
 )
@@ -91,6 +78,13 @@ def explainable_variance(y_matrix, bias_correction=True, do_zscore=True):
     help="Cross-validation strategy",
 )
 @click.option(
+    "--solver",
+    default="himalaya",
+    type=click.Choice(["sklearn", "rrr", "ompCV", "ompCV_ridge"]),
+    help="Engine for running encoding analyses. Must be either 'sklearn' "
+    "'rrr', 'ompCV', or 'ompCV_ridge'.",
+)
+@click.option(
     "--scoring_metric",
     type=click.Choice(["r2_score", "correlation_score"]),
     default="r2_score",
@@ -98,39 +92,21 @@ def explainable_variance(y_matrix, bias_correction=True, do_zscore=True):
     "are supported.",
 )
 @click.option(
-    "--average",
-    is_flag=True,
-    help="Average repeat image presentations before encoding. "
-    "Note that this is incompatible with the 'image' cv_strategy",
-)
-@click.option(
     "--data_dir",
     default="/home/emdupre/links/projects/rrg-pbellec/emdupre/things.betas",
     help="Data directory.",
 )
 @click.option(
-    "--engine",
-    default="himalaya",
-    type=click.Choice(
-        ["himalaya", "sklearn", "rrr", "omp", "ompCV", "ompCV_ridge"]
-    ),
-    help="Engine for running encoding analyses. Must be either 'sklearn' "
-    "'rrr', 'omp', 'ompCV', 'ompCV_ridge' or 'himalaya'. Note only the latter"
-    "is GPU compatiable.",
+    "--data_percentage",
+    type=click.FloatRange(0, 1, min_open=True),
+    default=1,
+    help="Percentage of data to include in analysis. Must be between 0 and 1.",
 )
-@click.option(
-    "--space",
-    default="T1w",
-    help="Space in which to run encoding analyses. Must be either 'MNI152NLin2009cAsym' or 'T1w'.",
-)
-def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, space):
+def main(
+    sub_name, roi, cv_strategy, solver, scoring_metric, data_dir, data_percentage=1
+):
     """ """
-    # conditional argument parsing
-    if average and (cv_strategy == "image"):
-        err_msg = (
-            f"Cross-validation strategy {cv_strategy} is not compatible with 'average'"
-        )
-        raise ValueError(err_msg)
+    space = "T1w"
 
     # set scoring function callable from string
     if scoring_metric == "r2_score":
@@ -140,14 +116,11 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
 
     # load data
     X_matrix = np.load(
-        Path(data_dir, "encoding-inputs", space, f"{sub_name}_stim_features.npy")
-    )
-    mask = nib.load(
         Path(
             data_dir,
             "encoding-inputs",
             space,
-            f"{sub_name}_space-{space}_brain_mask.nii.gz",
+            f"{sub_name}_stim_features.npy",
         )
     )
 
@@ -160,15 +133,6 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
                 f"{sub_name}_space-{space}_roi-{roi}_brain_responses.npy",
             )
         )
-
-        roi_fname = (
-            f"{sub_name}_task-floc_space-{space}*_roi-{roi}_*_desc-smooth_mask.nii.gz"
-        )
-        try:
-            roi_mask = nib.load(next(Path(data_dir, "rois", sub_name).glob(roi_fname)))
-        except StopIteration:
-            raise FileNotFoundError(f"Could not find ROI file matching {roi_fname}")
-
     else:
         y_matrix = np.load(
             Path(
@@ -179,63 +143,22 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             )
         )
 
-    expl_var = explainable_variance(y_matrix)
+    # ignore inner groups for now
+    groups, _ = define_groups(cv_strategy, sub_name, data_dir)
 
-    if cv_strategy == "kfold":
-        groups = None
-    else:
-        # Note that "category" will return `incl_labels` corresponding
-        # to image categories (e.g., 'acorn')
-        # and "image" will return `incl_labels` corresponding
-        # to image identities (e.g., 'acorn_01b').
-        groups = np.loadtxt(
-            Path(data_dir, "encoding-inputs", space, f"{sub_name}_stim_labels.txt"),
-            dtype=np.str_,
-        )
-        if cv_strategy == "category":
-            groups = np.asarray([g.rsplit("_", 1)[0] for g in groups])
+    # apply data_percentage, subset data if data_percentage < 1
+    n_samples = int(data_percentage * len(X_matrix))
 
-        if cv_strategy == "multilabel":
-            # NOTE : this is consolidating duplicate keys
-            with open(
-                Path(
-                    data_dir,
-                    "encoding-inputs",
-                    space,
-                    f"{sub_name}_category53_mapping.json",
-                )
-            ) as f:
-                cat_dict = json.load(f)
-
-            cat53_stim_mask_ = [True if g in cat_dict.keys() else False for g in groups]
-            cat53_X = X_matrix[cat53_stim_mask_]
-
-            cat53_dense_labels_ = []
-            for sv in groups[cat53_stim_mask_]:
-                cat53_dense_labels_.append(cat_dict.get(sv))
-
-            mlb = MultiLabelBinarizer().fit(cat53_dense_labels_)
-            cat53_y = mlb.transform(cat53_dense_labels_)
-
-            X_matrix, y_idx, groups = leave_one_THINGSplus_out(cat53_X, cat53_y)
-            y_matrix = y_matrix[cat53_stim_mask_][y_idx]
-    ####################################
-    # FIXME
-    inner_groups = np.loadtxt(
-        Path(data_dir, "encoding-inputs", space, f"{sub_name}_session_labels.txt"),
-        dtype=np.str_,
+    print(
+        f"Data percentage is {data_percentage}, "
+        f"using {n_samples} samples for train and test."
     )
-    ####################################
-    if average:
-        # NOTE: shapes hard-coded for three repetitions, 4174 images, THINGS dataset
-        if groups is not None:
-            groups = groups[::3]
-        X_matrix = X_matrix[::3]
-        y_matrix = np.mean(
-            y_matrix.reshape(len(X_matrix), 3, y_matrix.shape[-1]), axis=1
-        )
+    X_matrix = X_matrix[:n_samples]
+    y_matrix = y_matrix[:n_samples]
+    if groups is not None:
+        groups = groups[:n_samples]
 
-    if engine == "sklearn":
+    if solver == "sklearn":
         scores = ridgeCV_sklearn(
             X_matrix,
             y_matrix,
@@ -243,10 +166,8 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             scoring=scoring,
             cv_strategy=cv_strategy,
         )
-        best_alphas = [best_alpha_ for best_alpha_ in scores["best_alphas"]]
-        best_scores = [best_score_ for best_score_ in scores["best_scores"]]
 
-    elif engine == "rrr":
+    elif solver == "rrr":
         scores = ridgeCV_rrr(
             X_matrix,
             y_matrix,
@@ -255,37 +176,8 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             scoring=scoring,
             cv_strategy=cv_strategy,
         )
-        best_ranks = [best_rank_ for best_rank_ in scores["best_ranks"]]
-        best_scores = [best_score_ for best_score_ in scores["best_scores"]]
 
-    elif engine == "himalaya":
-        scores = ridgeCV_himalaya(
-            X_matrix,
-            y_matrix,
-            groups=groups,
-            scoring=scoring,
-            cv_strategy=cv_strategy,
-        )
-        try:
-            best_alphas = [best_alpha_.cpu() for best_alpha_ in scores["best_alphas"]]
-            best_scores = [best_score_.cpu() for best_score_ in scores["best_scores"]]
-        except AttributeError:
-            best_alphas = scores["best_alphas"]
-            best_scores = scores["best_scores"]
-
-    elif engine == "omp":
-        scores = orthogonal_mp_sklearn(
-            X_matrix,
-            y_matrix,
-            groups=groups,
-            scoring=scoring,
-            cv_strategy=cv_strategy,
-            max_nonzero_coefs=1000,
-            inner_cv=5,
-        )
-        best_scores = scores["per_target_test_scores"]
-
-    elif engine == "ompCV":
+    elif solver == "ompCV":
         scores = ompCV_sklearn(
             X_matrix,
             y_matrix,
@@ -295,9 +187,8 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             max_nonzero_coefs=100,
             inner_cv=5,
         )
-        best_scores = scores["per_target_test_scores"]
 
-    elif engine == "ompCV_ridge":
+    elif solver == "ompCV_ridge":
         scores = ompCV_ridge_sklearn(
             X_matrix,
             y_matrix,
@@ -307,100 +198,53 @@ def main(sub_name, roi, cv_strategy, scoring_metric, average, data_dir, engine, 
             max_nonzero_coefs=100,
             inner_cv=5,
         )
-        best_scores = scores["per_target_test_scores"]
+
+    expl_var = explainable_variance(y_matrix)
+    scores["explainable_variance"] = expl_var
+
+    # elif engine == "himalaya":
+    #     scores = ridgeCV_himalaya(
+    #         X_matrix,
+    #         y_matrix,
+    #         groups=groups,
+    #         scoring=scoring,
+    #         cv_strategy=cv_strategy,
+    #     )
+    #     try:
+    #         best_alphas = [best_alpha_.cpu() for best_alpha_ in scores["best_alphas"]]
+    #         best_scores = [best_score_.cpu() for best_score_ in scores["best_scores"]]
+    #     except AttributeError:
+    #         best_alphas = scores["best_alphas"]
+    #         best_scores = scores["best_scores"]
+
+    # elif engine == "omp":
+    #     scores = orthogonal_mp_sklearn(
+    #         X_matrix,
+    #         y_matrix,
+    #         groups=groups,
+    #         scoring=scoring,
+    #         cv_strategy=cv_strategy,
+    #         max_nonzero_coefs=1000,
+    #         inner_cv_splits=5,
+    #     )
+    #     best_scores = scores["per_target_test_scores"]
 
     if roi is None:
         roi = "wholebrain"
-    if average:
-        out_file = Path(
-            data_dir,
-            "encoding-results",
-            f"{sub_name}_space-{space}_roi-{roi}_cv-{cv_strategy}-average_{engine}_scores.pkl",
-        )
-    else:
-        out_file = Path(
-            data_dir,
-            "encoding-results",
-            f"{sub_name}_space-{space}_roi-{roi}_cv-{cv_strategy}_{engine}_scores.pkl",
-        )
 
-    if not out_file.is_file():
-        with open(out_file, "wb") as f:
-            pickle.dump(scores, f)
+    out_file = Path(
+        data_dir,
+        "encoding-results",
+        f"{sub_name}_space-{space}_roi-{roi}_dataPercent-{data_percentage}_cv-{cv_strategy}_{scoring_metric}_{solver}.pkl",
+    )
+
+    # if not out_file.is_file():
+    with open(out_file, "wb") as f:
+        pickle.dump(scores, f)
 
     # to un-pickle
     # with open(out_file, 'rb') as f:
     #     check = pickle.load(f)
-
-    if roi == "wholebrain":
-        # plot histogram of explainable var and scores across cortex
-        fig_hist = plot_voxel_hist(
-            sub_name, expl_var, best_scores, scoring_metric=scoring_metric
-        )
-        if average:
-            fig_hist.savefig(
-                f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}-average_{scoring_metric}_{engine}_expl_var_hist.png"
-            )
-        else:
-            fig_hist.savefig(
-                f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}_{scoring_metric}_{engine}_expl_var_hist.png"
-            )
-        plt.close(fig_hist)
-
-        # plot diagnostic of voxelwise best alphas ; QC for two clear peaks
-        fig_alphas, ax = plt.subplots(1, 1)
-        for i, b_alpha in enumerate(best_alphas):
-            plot_alphas_diagnostic(
-                best_alphas=b_alpha, alphas=np.logspace(1, 20, 20), cv_fold=i, ax=ax
-            )
-        if average:
-            fig_alphas.savefig(
-                Path(
-                    data_dir,
-                    "encoding-results",
-                    f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}-average_{scoring_metric}_{engine}_alphas.png",
-                )
-            )
-        else:
-            fig_alphas.savefig(
-                Path(
-                    data_dir,
-                    "encoding-results",
-                    f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}_{scoring_metric}_{engine}_alphas.png",
-                )
-            )
-        plt.close(fig_alphas)
-
-        # plot flatmap of scores across cortex
-        plot_flatmap(
-            best_scores,
-            sub_name,
-            mask,
-            cv_strategy,
-            scoring_metric=scoring_metric,
-            average=average,
-            data_dir=data_dir,
-        )
-    elif roi in ["EBA", "FFA", "OFA", "pSTS", "MPA", "OPA", "PPA"]:
-        # plot stat map of scores across ROI
-        if engine not in ("rrr", "omp"):
-            masker = NiftiMasker(mask_img=roi_mask).fit()
-            fig = plot_stat_map(
-                masker.inverse_transform(np.mean(best_scores, axis=0)),
-                display_mode="z",
-                colorbar=True,
-                symmetric_cbar=False,
-                vmax=0.25,
-                vmin=0,
-                cmap="PuRd",
-            )
-            fig.savefig(
-                Path(
-                    data_dir,
-                    "encoding-results",
-                    f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}_{scoring_metric}_{engine}_statmap.png",
-                )
-            )
 
 
 if __name__ == "__main__":
