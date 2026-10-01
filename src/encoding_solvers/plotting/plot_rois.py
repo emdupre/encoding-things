@@ -1,125 +1,19 @@
 # %%
-import io
-import pickle
+from collections import defaultdict
 from pathlib import Path
 
 import matplotlib
 import matplotlib.pyplot as plt
 import nibabel as nib
 import numpy as np
-import torch
 from nilearn.maskers import NiftiMasker
 from nilearn.plotting import plot_stat_map
 
-
-# %%
-class CPU_Unpickler(pickle.Unpickler):
-    def find_class(self, module, name):
-        if module == "torch.storage" and name == "_load_from_bytes":
-            return lambda b: torch.load(
-                io.BytesIO(b), map_location="cpu", weights_only=False
-            )
-        else:
-            return super().find_class(module, name)
-
-
-def load_data(sub, roi, solver, metric="r2_score"):
-    res_path = f"results/{sub}_space-T1w_roi-{roi}_cv-kfold-average_{metric}_{solver}_scores.pkl"
-    out_file = res_path.format(sub=sub, roi=roi, solver=solver)
-
-    if solver == "himalaya":
-        with open(out_file, "rb") as f:
-            scores = CPU_Unpickler(f).load()
-    else:
-        with open(out_file, "rb") as f:
-            scores = pickle.load(f)
-    return scores
-
-
-def create_results_dict(sub, solvers, rois, metric="r2_score"):
-    """
-    Build best_scores[roi][solver] = list of folds (each fold = 1D array of
-    per-target scores)
-    """
-    best_scores = {}
-
-    for roi in rois:
-        best_scores[roi] = {}
-
-        scores = {
-            solver: load_data(sub, roi, solver, metric) for solver in solvers
-        }
-        for solver in solvers:
-            if solver in ["himalaya", "sklearn", "rrr"]:
-                best_scores[roi][solver] = scores[solver]["best_scores"]
-            elif solver in ["ompCV", "ompCV_ridge"]:
-                best_scores[roi][solver] = scores[solver][
-                    "per_target_test_scores"
-                ]
-            else:
-                raise ValueError(f"Unknown solver: {solver}")
-
-            arr = np.asarray(best_scores[roi][solver])
-            print(
-                f"[check] roi={roi} solver={solver} best_scores shape={arr.shape}"
-            )
-
-    return best_scores
-
-
-def compute_quantile_and_std(best_scores, q=0.9, ddof=1):
-    """
-    From best_scores[roi][solver] (list of n_folds arrays, each array =
-    per-target scores for that fold), compute:
-      - quantile_scores[roi][solver]: mean across folds of the q-quantile
-        of the per-target scores within each fold
-      - std_scores[roi][solver]: std across folds of those per-fold
-        q-quantiles (used as the error bar on the bar plot)
-
-    ddof=1 gives the sample std (usually preferable with few folds);
-    use ddof=0 to match np.std's default.
-    """
-    quantile_scores = {}
-    std_scores = {}
-
-    for roi in best_scores:
-        quantile_scores[roi] = {}
-        std_scores[roi] = {}
-        for solver in best_scores[roi]:
-            folds = [np.asarray(f) for f in best_scores[roi][solver]]
-            fold_quantiles = np.array([np.quantile(f, q) for f in folds])
-
-            quantile_scores[roi][solver] = fold_quantiles.mean()
-            std_scores[roi][solver] = fold_quantiles.std(ddof=ddof)
-
-    return quantile_scores, std_scores
-
-
-def gather_results_for_subjects(subjects, solvers, rois, metric="r2_score"):
-    """
-    Loop over subjects and build best_scores / highest_scores / std_scores,
-    each keyed by subject. This is the only place the per-subject loop
-    lives now, so `main` can just call this once.
-    """
-    best_scores_all = {}
-    highest_scores_all = {}
-    std_scores_all = {}
-
-    for sub in subjects:
-        best_res = create_results_dict(sub, solvers, rois, metric=metric)
-        # highest_res, std_res = compute_highest_and_std(best_res)
-        highest_res, std_res = compute_quantile_and_std(
-            best_res, q=0.9, ddof=1
-        )
-        best_scores_all[sub] = best_res
-        highest_scores_all[sub] = highest_res
-        std_scores_all[sub] = std_res
-
-    return best_scores_all, highest_scores_all, std_scores_all
+from .utils import gather_test_scores
 
 
 def _get_solver_colors(n_solvers):
-    colors = ["pink", "mediumorchid", "cornflowerblue", "mediumaquamarine"]
+    colors = ["pink", "mediumorchid", "cornflowerblue", "mediumaquamarine", "grey"]
     return [colors[j % len(colors)] for j in range(n_solvers)]
 
 
@@ -130,24 +24,28 @@ def _plot_one_subject(
     best_scores,
     highest_scores,
     std_scores,
+    expl_var,
+    rois,
     metric,
     metric_name,
 ):
     """Fill a pair of (left, right) axes with one subject's two subplots."""
-    rois = list(highest_scores.keys())
-    solvers = list(highest_scores[next(iter(highest_scores))].keys())
+    solvers = list(highest_scores.keys())
 
-    plot_quantile_scores_bar(
-        ax_left, rois, solvers, highest_scores, std_scores, metric_name
+    plot_score_distribution(
+        ax_left, rois, solvers, best_scores, expl_var, metric, metric_name
     )
-    plot_score_distribution(ax_right, rois, solvers, best_scores, metric)
+    plot_quantile_scores_bar(
+        ax_right, rois, solvers, highest_scores, std_scores, expl_var, metric_name
+    )
 
     ax_left.set_title(f"{sub} — {ax_left.get_title()}")
     ax_right.set_title(f"{sub} — {ax_right.get_title()}")
+    return
 
 
 def plot_quantile_scores_bar(
-    ax, rois, solvers, highest_scores, std_scores, metric_name
+    ax, rois, solvers, highest_scores, std_scores, expl_var, metric_name
 ):
     """
     Left subplot: grouped bar plot of the 90-quantile of metric per ROI/solver,
@@ -157,42 +55,62 @@ def plot_quantile_scores_bar(
     n_solvers = len(solvers)
     x = np.arange(n_rois)
     bar_width = 0.8 / n_solvers
+
     colors = _get_solver_colors(n_solvers)
+    solver_plot_names = {
+        "sklearn": "Ridge",
+        "rrr": "Reduced Rank Ridge",
+        "ompCV": "Orthogonal Matching Pursuit (OMP)",
+        "ompCV_Ridge": "OMP-refined Ridge",
+    }
 
     for i, roi in enumerate(rois):
+        upper_expl_var = np.quantile(expl_var, q=0.9)
+        ax.axhline(upper_expl_var, linestyle="-.", color="grey", label="Noise ceiling")
+
         for j, solver in enumerate(solvers):
             offset = (j - (n_solvers - 1) / 2) * bar_width
-            score = highest_scores[roi][solver]
-            err = std_scores[roi][solver]
+            score = highest_scores[solver]
+            err = std_scores[solver]
+
             ax.bar(
                 x[i] + offset,
                 score,
                 width=bar_width,
                 yerr=err,
                 capsize=3,
-                label=solver if i == 0 else "",
+                label=solver_plot_names[solver] if i == 0 else "",
                 color=colors[j],
             )
 
-    ax.yaxis.grid(True, linestyle="-", alpha=0.7)
     ax.set_xticks(x)
     ax.set_xticklabels(rois)
     ax.set_xlabel("")
+
+    ax.yaxis.grid(True, linestyle="-", alpha=0.7)
+    ax.set_ylim(bottom=None, top=0.4)
     ax.set_ylabel(metric_name)
+
     ax.set_title(f"Highest {metric_name} (± std across folds)")
     ax.set_title(f"90th percentile {metric_name} (± std across folds)")
-    ax.legend(title="Solver")
+    ax.legend()
     ax.axhline(0, color="black", linewidth=0.8)
 
+    return
 
-def plot_score_distribution(ax, rois, solvers, best_scores, metric):
+
+def plot_score_distribution(
+    ax, rois, solvers, best_scores, expl_var, metric, metric_name
+):
     """
     Right subplot: distribution of all per-target, per-fold scores as
     violin plots, grouped by ROI/solver in the same layout as the bar plot.
     Y-axis is fixed to [-1, 1] for correlation metrics, [0, 1] for r2.
     """
+
     n_rois = len(rois)
     n_solvers = len(solvers)
+
     x = np.arange(n_rois)
     bar_width = 0.8 / n_solvers
     colors = _get_solver_colors(n_solvers)
@@ -202,8 +120,9 @@ def plot_score_distribution(ax, rois, solvers, best_scores, metric):
             offset = (j - (n_solvers - 1) / 2) * bar_width
             # flatten across folds and targets
             values = np.concatenate(
-                [np.asarray(f).ravel() for f in best_scores[roi][solver]]
+                [np.asarray(f).ravel() for f in best_scores[solver]]
             )
+
             parts = ax.violinplot(
                 values,
                 positions=[x[i] + offset],
@@ -219,9 +138,27 @@ def plot_score_distribution(ax, rois, solvers, best_scores, metric):
                 if key in parts:
                     parts[key].set_color("black")
 
-    metric_name = metric.replace("_", " ").title()
-    is_r2 = "r2" in metric.lower()
-    ax.set_ylim(0, 1) if is_r2 else ax.set_ylim(-1, 1)
+        # plot noise ceiling
+        offset = ((j + 1) - (n_solvers - 1) / 2) * bar_width
+        parts = ax.violinplot(
+            expl_var,
+            positions=[x[i] + offset],
+            widths=bar_width * 0.9,
+            showmeans=True,
+            showextrema=True,
+        )
+        for body in parts["bodies"]:
+            body.set_facecolor("grey")
+            body.set_edgecolor("black")
+            body.set_alpha(0.7)
+        for key in ("cbars", "cmins", "cmaxes", "cmeans"):
+            if key in parts:
+                parts[key].set_color("black")
+
+    if metric == "r2_score":
+        ax.set_ylim(0, 1)
+    else:
+        ax.set_ylim(-1, 1)
 
     ax.set_xticks(x)
     ax.set_xticklabels(rois)
@@ -236,6 +173,8 @@ def plot_max_metric_across_solvers(
     best_scores_all,
     highest_scores_all,
     std_scores_all,
+    expl_var_all,
+    rois,
     metric="r2_score",
     separate_figures=True,
 ):
@@ -250,8 +189,11 @@ def plot_max_metric_across_solvers(
         behaviour). If False, produce a single figure with one row per
         subject and the same two columns.
     """
-    metric_name = metric.replace("_", " ").title()
     n_rois = len(rois)
+    if metric == "r2_score":
+        metric_name = "$R^2$ Score"
+    elif metric == "correlation_score":
+        metric_name = metric.replace("_", " ").title()
 
     if separate_figures:
         for sub in subjects:
@@ -265,6 +207,8 @@ def plot_max_metric_across_solvers(
                 best_scores_all[sub],
                 highest_scores_all[sub],
                 std_scores_all[sub],
+                expl_var_all[sub],
+                rois,
                 metric,
                 metric_name,
             )
@@ -288,6 +232,8 @@ def plot_max_metric_across_solvers(
                 best_scores_all[sub],
                 highest_scores_all[sub],
                 std_scores_all[sub],
+                expl_var_all[sub],
+                rois,
                 metric,
                 metric_name,
             )
@@ -296,13 +242,9 @@ def plot_max_metric_across_solvers(
         plt.show()
 
 
-def load_roi_mask(sub, roi):
-    roi_fname = (
-        f"{sub}_task-floc_space-T1w*_roi-{roi}_*_desc-smooth_mask.nii.gz"
-    )
-    roi_mask = nib.load(
-        next(Path(data_dir, "encoding-inputs", "rois").glob(roi_fname))
-    )
+def load_roi_mask(sub, roi, data_dir):
+    roi_fname = f"{sub}_task-floc_space-T1w*_roi-{roi}_*_desc-smooth_mask.nii.gz"
+    roi_mask = nib.load(next(Path(data_dir, "encoding-inputs", "rois").glob(roi_fname)))
     return roi_mask
 
 
@@ -347,6 +289,7 @@ def plot_score_maps_grid(
     rois,
     solvers,
     best_scores,
+    data_path,
     metric,
     vmax=0.25,
     vmin=0,
@@ -386,7 +329,7 @@ def plot_score_maps_grid(
     plt.subplots_adjust(top=0.85, bottom=0.16, hspace=0.5, wspace=0.1)
 
     for i, roi in enumerate(rois):
-        roi_mask = load_roi_mask(sub, roi)
+        roi_mask = load_roi_mask(sub, roi, data_path)
         for j, solver in enumerate(solvers):
             plot_score_map(
                 roi_mask,
@@ -444,9 +387,7 @@ def plot_score_maps_grid(
         cmap=cmap, norm=matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
     )
     sm.set_array([])
-    cbar_ax = fig.add_axes(
-        [0.25, 0.02, 0.5, 0.015]
-    )  # [left, bottom, width, height]
+    cbar_ax = fig.add_axes([0.25, 0.02, 0.5, 0.015])  # [left, bottom, width, height]
     fig.colorbar(sm, cax=cbar_ax, orientation="horizontal")
 
     plt.show()
@@ -454,27 +395,45 @@ def plot_score_maps_grid(
 
 
 # %%
-data_dir = "/data/parietal/store4/data/cneuromod/things.betas"
-rois = ["EBA", "pSTS", "PPA"]
-subjects = ["sub-01", "sub-02", "sub-03"]
-solvers = ["sklearn", "ompCV", "rrr", "ompCV_ridge"]  # "himalaya",
-metric_ = "r2_score"  # "correlation_score" or "r2_score"
+def main():
+    # data_path = "/data/parietal/store4/data/cneuromod/things.betas"
+    data_path = "/Users/emdupre/Desktop/UdeM-Projects/things-encode/"
+    subjects = ["sub-03"]  # "sub-01", "sub-02",
+    metric_ = "r2_score"  # "correlation_score" or "r2_score"
 
-# %%
-best_scores_all, highest_scores_all, std_scores_all = (
-    gather_results_for_subjects(subjects, solvers, rois, metric=metric_)
-)
-plot_max_metric_across_solvers(
-    subjects,
-    best_scores_all,
-    highest_scores_all,
-    std_scores_all,
-    metric=metric_,
-    separate_figures=False,
-)
+    scores_all = defaultdict()
+    highest_scores_all = defaultdict()
+    std_scores_all = defaultdict()
+    expl_var_all = defaultdict()
 
-for sub in subjects:
-    plot_score_maps_grid(
-        sub, rois, solvers, best_scores_all[sub], metric=metric_
+    for sub in subjects:
+        test_scores, highest_scores, std_scores, expl_var = gather_test_scores(
+            sub, roi="EBA", data_path=data_path, metric=metric_
+        )
+        scores_all[sub] = test_scores
+        highest_scores_all[sub] = highest_scores
+        std_scores_all[sub] = std_scores
+        expl_var_all[sub] = expl_var
+
+    plot_max_metric_across_solvers(
+        subjects,
+        scores_all,
+        highest_scores_all,
+        std_scores_all,
+        expl_var_all,
+        rois=["EBA"],
+        metric=metric_,
+        separate_figures=False,
     )
+
+    rois = ["EBA", "pSTS", "PPA"]
+    solvers = ["sklearn", "ompCV", "rrr", "ompCV_ridge"]  # "himalaya",
+    for sub in subjects:
+        plot_score_maps_grid(
+            sub, rois, solvers, scores_all[sub], data_path, metric=metric_
+        )
+
+
 # %%
+if __name__ == "__main__":
+    main()

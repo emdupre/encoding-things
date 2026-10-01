@@ -1,7 +1,12 @@
+from pathlib import Path
+
 import cortex
 import matplotlib.pyplot as plt
+import nibabel as nib
 import numpy as np
 from nilearn import masking
+
+from .utils import create_results_dict
 
 # os.environ["PATH"] += ":/Applications/Inkscape.app/Contents/MacOS/"
 
@@ -12,7 +17,6 @@ def plot_flatmap(
     mask_img,
     cv_strategy,
     scoring_metric="r2_score",
-    average=False,
 ):
     """
     Parameters
@@ -37,12 +41,7 @@ def plot_flatmap(
         cmap="magma",
     )
 
-    if average:
-        out_name = (
-            f"{sub_name}_{cv_strategy}-average_encoding_{scoring_metric}_flatmap.png"
-        )
-    else:
-        out_name = f"{sub_name}_{cv_strategy}_encoding_{scoring_metric}_flatmap.png"
+    out_name = f"{sub_name}_{cv_strategy}_encoding_{scoring_metric}_flatmap.png"
 
     # fig = cortex.quickshow(nii_vol, sampler="nearest")
     cortex.quickflat.make_png(
@@ -179,3 +178,60 @@ def plot_voxel_hist(
     ax.grid("on")
     ax.legend()
     return fig
+
+
+def main(sub_name, roi, cv_strategy, solver, scoring_metric, data_dir):
+    space = "T1w"
+    results_dict = create_results_dict(sub_name, roi, solver, scoring_metric, data_dir)
+
+    # plot histogram of explainable variance and test scores
+    fig_hist = plot_voxel_hist(
+        sub_name,
+        results_dict["explainable_variance"],
+        results_dict["test_scores"],
+        scoring_metric=scoring_metric,
+    )
+    fig_hist.savefig(
+        f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}_{scoring_metric}_{solver}_expl_var_hist.png"
+    )
+    plt.close(fig_hist)
+
+    # plot diagnostic of voxelwise best alphas ; QC for two clear peaks
+    if solver == "sklearn":
+        best_alphas = results_dict["regularization_params"]
+
+        fig_alphas, ax = plt.subplots(1, 1)
+        for i, b_alpha in enumerate(best_alphas):
+            plot_alphas_diagnostic(
+                best_alphas=b_alpha, alphas=np.logspace(1, 20, 20), cv_fold=i, ax=ax
+            )
+        fig_alphas.savefig(
+            Path(
+                data_dir,
+                "encoding-results",
+                f"{sub_name}_space-{space}_roi-{roi}_{cv_strategy}_{scoring_metric}_{solver}_alphas.png",
+            )
+        )
+        plt.close(fig_alphas)
+
+    # plot flatmap of scores across cortex
+    mask = nib.load(
+        Path(
+            data_dir,
+            "encoding-inputs",
+            space,
+            f"{sub_name}_space-{space}_brain_mask.nii.gz",
+        )
+    )
+    plot_flatmap(
+        results_dict["test_scores"],
+        sub_name,
+        mask,
+        cv_strategy,
+        scoring_metric=scoring_metric,
+        data_dir=data_dir,
+    )
+
+
+if __name__ == "__main__":
+    main()
