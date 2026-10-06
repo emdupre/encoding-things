@@ -6,6 +6,21 @@ from pathlib import Path
 import numpy as np
 
 
+def _get_solver_colors(n_solvers):
+    colors = ["pink", "mediumorchid", "cornflowerblue", "mediumaquamarine", "grey"]
+    return [colors[j % len(colors)] for j in range(n_solvers)]
+
+
+def _get_solver_names(solver):
+    solver_plot_names = {
+        "sklearn": "Ridge",
+        "rrr": "Reduced Rank Ridge",
+        "ompCV": "Orthogonal Matching Pursuit (OMP)",
+        "ompCV_Ridge": "OMP-refined Ridge",
+    }
+    return solver_plot_names[solver]
+
+
 def load_pkl_keys(results_pkl):
     """
     Grab fields necessary for plotting from a given results.pkl file.
@@ -49,7 +64,7 @@ def load_pkl_keys(results_pkl):
     return test_scores, reg_params, fit_times, n_train_samples, explainable_variance
 
 
-def create_results_dict(sub_name, roi, solver, metric, data_path, percent=1.0):
+def create_results_dict(sub_name, roi, solver, metric, data_percent, data_path):
     """
     Create a results dictionary for a given subject, ROI, and metric.
 
@@ -65,7 +80,7 @@ def create_results_dict(sub_name, roi, solver, metric, data_path, percent=1.0):
     results_pkl = Path(
         data_path,
         "encoding-results",
-        f"{sub_name}_space-T1w_roi-{roi}_dataPercent-{percent}_cv-kfold_{metric}_{solver}.pkl",
+        f"{sub_name}_space-T1w_roi-{roi}_dataPercent-{data_percent}_cv-kfold_{metric}_{solver}.pkl",
     )
     (test_scores, reg_params, fit_times, n_train_samples, explainable_variance) = (
         load_pkl_keys(results_pkl)
@@ -101,7 +116,7 @@ def compute_quantile_and_std(test_scores, q=0.9, ddof=1):
     return quantile_scores, std_scores
 
 
-def gather_test_scores(sub_name, roi, data_path, metric="r2_score"):
+def gather_test_scores(sub_name, roi, data_path, metric="r2_score", data_percent=1.0):
     """
     Parameters
     ----------
@@ -123,7 +138,9 @@ def gather_test_scores(sub_name, roi, data_path, metric="r2_score"):
 
     for solver in solvers:
         try:
-            res_dict = create_results_dict(sub_name, roi, solver, metric, data_path)
+            res_dict = create_results_dict(
+                sub_name, roi, solver, metric, data_percent, data_path
+            )
             test_scores = res_dict["test_scores"]
             highest_test_scores, std_test_scores = compute_quantile_and_std(
                 test_scores, q=0.9, ddof=1
@@ -132,6 +149,7 @@ def gather_test_scores(sub_name, roi, data_path, metric="r2_score"):
             scores[solver] = test_scores
             highest_scores[solver] = highest_test_scores
             std_scores[solver] = std_test_scores
+
         except FileNotFoundError:
             warnings.warn(
                 f"{solver} results do not exist on {data_path}. "
