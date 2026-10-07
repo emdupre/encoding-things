@@ -6,9 +6,15 @@ from pathlib import Path
 import numpy as np
 
 
-def _get_solver_colors(n_solvers):
-    colors = ["pink", "mediumorchid", "cornflowerblue", "mediumaquamarine", "grey"]
-    return [colors[j % len(colors)] for j in range(n_solvers)]
+def _get_solver_colors(solver):
+    solver_colors = {
+        "sklearn": "pink",
+        "rrr": "mediumorchid",
+        "ompCV": "cornflowerblue",
+        "ompCV_ridge": "mediumaquamarine",
+    }
+
+    return solver_colors[solver]
 
 
 def _get_solver_names(solver):
@@ -16,7 +22,7 @@ def _get_solver_names(solver):
         "sklearn": "Ridge",
         "rrr": "Reduced Rank Ridge",
         "ompCV": "Orthogonal Matching Pursuit (OMP)",
-        "ompCV_Ridge": "OMP-refined Ridge",
+        "ompCV_ridge": "OMP-refined Ridge",
     }
     return solver_plot_names[solver]
 
@@ -46,7 +52,7 @@ def load_pkl_keys(results_pkl):
 
     # grab different regularization params for each of the solvers handle
     reg_params = []
-    if "omp" in str(results_pkl):
+    if "ompCV.pkl" in str(results_pkl):
         for fold in scores["estimator"]:
             n_coefs = []
             for feature_pl in fold.estimators_:
@@ -54,6 +60,14 @@ def load_pkl_keys(results_pkl):
                     feature_pl.named_steps[
                         "orthogonalmatchingpursuitcv"
                     ].n_nonzero_coefs_
+                )
+            reg_params.append(np.asarray(n_coefs))
+    elif "ompCV_ridge.pkl" in str(results_pkl):
+        for fold in scores["estimator"]:
+            n_coefs = []
+            for feature_pl in fold.estimators_:
+                n_coefs.append(
+                    feature_pl.named_steps["ompselectridge"].omp_n_nonzero_coefs_
                 )
             reg_params.append(np.asarray(n_coefs))
     elif "rrr" in str(results_pkl):

@@ -9,7 +9,7 @@ import numpy as np
 from nilearn.maskers import NiftiMasker
 from nilearn.plotting import plot_stat_map
 
-from .utils import _get_solver_colors, _get_solver_names, gather_test_scores
+# from .utils import _get_solver_colors, _get_solver_names, gather_test_scores
 
 
 def _plot_one_subject(
@@ -25,34 +25,25 @@ def _plot_one_subject(
     metric_name,
 ):
     """Fill a pair of (left, right) axes with one subject's two subplots."""
-    # assume that all ROIs have the same solvers
-    solvers = list(highest_scores[rois[0]].keys())
 
-    plot_score_distribution(
-        ax_left, rois, solvers, best_scores, expl_var, metric, metric_name
-    )
+    plot_score_distribution(ax_left, rois, best_scores, expl_var, metric, metric_name)
     plot_quantile_scores_bar(
-        ax_right, rois, solvers, highest_scores, std_scores, expl_var, metric_name
+        ax_right, rois, highest_scores, std_scores, expl_var, metric_name
     )
 
-    ax_left.set_title(f"{sub} — {ax_left.get_title()}")
-    ax_right.set_title(f"{sub} — {ax_right.get_title()}")
+    ax_left.set_title(f"{ax_left.get_title()}")
+    ax_right.set_title(f"{ax_right.get_title()}")
     return
 
 
 def plot_quantile_scores_bar(
-    ax, rois, solvers, highest_scores, std_scores, expl_var, metric_name
+    ax, rois, highest_scores, std_scores, expl_var, metric_name
 ):
     """
     Left subplot: grouped bar plot of the 90-quantile of metric per ROI/solver,
     with error bars = std of per-fold max scores across the 5 folds.
     """
     n_rois = len(rois)
-    n_solvers = len(solvers)
-    x = np.arange(n_rois)
-    bar_width = 0.5 / n_solvers
-
-    colors = _get_solver_colors(n_solvers)
     solver_plot_names = {
         "sklearn": "Ridge",
         "rrr": "Reduced Rank Ridge",
@@ -61,6 +52,14 @@ def plot_quantile_scores_bar(
     }
 
     for i, roi in enumerate(rois):
+        solvers = list(highest_scores[roi].keys())
+        n_solvers = len(solvers)
+
+        # plotting helpers
+        x = np.arange(n_rois)
+        bar_width = 0.5 / n_solvers
+
+        # define noise ceiling 90 quantile
         expl_var_q = np.quantile(expl_var[roi], q=0.9)
 
         for j, solver in enumerate(solvers):
@@ -75,7 +74,7 @@ def plot_quantile_scores_bar(
                 yerr=err,
                 capsize=3,
                 label=_get_solver_names(solver) if i == 0 else "",
-                color=colors[j],
+                color=_get_solver_colors(solver),
             )
 
         offset = ((j + 1) - (n_solvers - 1) / 2) * bar_width
@@ -105,9 +104,7 @@ def plot_quantile_scores_bar(
     return
 
 
-def plot_score_distribution(
-    ax, rois, solvers, best_scores, expl_var, metric, metric_name
-):
+def plot_score_distribution(ax, rois, best_scores, expl_var, metric, metric_name):
     """
     Right subplot: distribution of all per-target, per-fold scores as
     violin plots, grouped by ROI/solver in the same layout as the bar plot.
@@ -115,13 +112,15 @@ def plot_score_distribution(
     """
 
     n_rois = len(rois)
-    n_solvers = len(solvers)
-
-    x = np.arange(n_rois)
-    bar_width = 0.6 / n_solvers
-    colors = _get_solver_colors(n_solvers)
 
     for i, roi in enumerate(rois):
+        solvers = list(best_scores[roi].keys())
+
+        # plotting helpers
+        n_solvers = len(solvers)
+        x = np.arange(n_rois)
+        bar_width = 0.6 / n_solvers
+
         for j, solver in enumerate(solvers):
             offset = (j - (n_solvers - 1) / 2) * bar_width
             # flatten across folds and targets
@@ -137,7 +136,7 @@ def plot_score_distribution(
                 showextrema=True,
             )
             for body in parts["bodies"]:
-                body.set_facecolor(colors[j])
+                body.set_facecolor(_get_solver_colors(solver))
                 body.set_edgecolor("black")
                 body.set_alpha(0.7)
             for key in ("cbars", "cmins", "cmaxes", "cmeans"):
@@ -243,8 +242,8 @@ def plot_max_metric_across_solvers(
                 metric,
                 metric_name,
             )
-        fig.suptitle(metric_name)
-        plt.tight_layout()
+        fig.suptitle(sub)
+        # plt.tight_layout()
         plt.show()
 
 
