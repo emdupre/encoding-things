@@ -148,7 +148,10 @@ def main(
 
     # apply data_percentage, subset data if data_percentage < 1
     n_samples = int(data_percentage * len(X_matrix))
-
+    # Update n_samples to be a multiple of n_repeats to avoid
+    # issues with explainable variance calculation
+    n_repeats = 3  # NOTE : Hard-coded for THINGS dataset
+    n_samples -= n_samples % n_repeats    
     print(
         f"Data percentage is {data_percentage}, "
         f"using {n_samples} samples for train and test."
