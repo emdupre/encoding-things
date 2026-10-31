@@ -1,15 +1,12 @@
 # %%
 import warnings
-from collections import defaultdict
 from dataclasses import dataclass, field
-from itertools import chain
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import MaxNLocator
 
 # from .utils import _get_solver_colors, _get_solver_names, gather_test_scores
-
 
 METRIC_NAMES = {
     "r2_score": "$R^2$ Score",
@@ -86,12 +83,6 @@ def load_roi_results(sub, roi, data_path, metric, data_percents=DATA_PERCENTS):
 
 
 # Regularization-parameter curves ------------------------------------------ #
-def _iqr_errorbars(params):
-    """Return (median, distance to 25th pct, distance to 75th pct)."""
-    q25, med, q75 = np.quantile(params, [0.25, 0.5, 0.75])
-    return med, med - q25, q75 - med
-
-
 def _n_voxels(test_scores_roi):
     """Number of voxels, read from the largest data percentage available."""
     if not test_scores_roi:
@@ -101,32 +92,41 @@ def _n_voxels(test_scores_roi):
     return len(any_solver_scores[0])
 
 
-def _plot_params_curves(axes_col, roi, solvers, results, n_voxels):
-    """Plot median (IQR) of the selected regularization parameter per solver."""
+def _concat_params(per_solver_params):
+    """Concatenate all folds and all targets into one flat array."""
+    return np.concatenate([np.ravel(p) for p in per_solver_params])
+
+
+def _plot_params_box(axes_col, roi, solvers, results, n_voxels):
+    """Show the regularization-parameter distribution per solver.
+    Values are pooled across all folds and all targets, one boxplot per data
+    percentage."""
     # Sort by percentage so a missing percentage can't shift the x positions.
     keys = sorted(results.reg_params, key=_percent_from_key)
 
     for ax, solver in zip(axes_col, solvers):
-        xs, medians, lower, upper = [], [], [], []
+        positions, distributions = [], []
         for key in keys:
             per_solver = results.reg_params[key]
             if solver not in per_solver:
                 continue  # solver not run at this percentage
-            # concatenate all folds and all targets
-            params = np.concatenate([np.ravel(p) for p in per_solver[solver]])
-            med, err_low, err_high = _iqr_errorbars(params)
-            xs.append(_percent_from_key(key))
-            medians.append(med)
-            lower.append(err_low)
-            upper.append(err_high)
+            distributions.append(_concat_params(per_solver[solver]))
+            positions.append(_percent_from_key(key))
 
-        if xs:
-            ax.errorbar(
-                xs,
-                medians,
-                yerr=[lower, upper],
-                marker="o",
-                color=_get_solver_colors(solver),
+        if positions:
+            color = _get_solver_colors(solver)
+            ax.boxplot(
+                distributions,
+                positions=positions,
+                widths=0.06,
+                whis=(0, 100),  # show full range / (5,95)
+                showfliers=False,
+                manage_ticks=False,  # x ticks are set later
+                patch_artist=True,
+                boxprops=dict(facecolor=color, edgecolor=color, alpha=0.5),
+                whiskerprops=dict(color=color),
+                capprops=dict(color=color),
+                medianprops=dict(color="black", linewidth=1.5),
             )
         else:
             ax.text(
@@ -138,12 +138,10 @@ def _plot_params_curves(axes_col, roi, solvers, results, n_voxels):
                 transform=ax.transAxes,
                 color="grey",
             )
-
         if solver in LOG_SOLVERS:
             ax.set_yscale("log")
-        else:
-            ax.yaxis.set_major_locator(MaxNLocator(integer=True))
         ax.yaxis.grid(True, linestyle="-", alpha=0.7)
+        ax.set_xlim(0.05, 1.05)
 
         spec = ax.get_subplotspec()
         if spec.is_first_row():
@@ -158,10 +156,11 @@ def _plot_params_curves(axes_col, roi, solvers, results, n_voxels):
             ax.set_xlabel("Data percentage")
 
 
-def plot_regularization_curves(
+def plot_regularization_params_distribution(
     sub, rois, results, solvers=("sklearn", "rrr", "ompCV")
 ):
-    """Plot the median regularization parameter against the data percentage."""
+    """Plot the regularization parameter distribution per data percentage."""
+
     fig, axes = plt.subplots(
         len(solvers),
         len(rois),
@@ -169,9 +168,11 @@ def plot_regularization_curves(
         sharey="row",
         figsize=(4 * len(rois), 2.5 * len(solvers)),
         squeeze=False,
+        layout="constrained",
     )
+
     for j, roi in enumerate(rois):
-        _plot_params_curves(
+        _plot_params_box(
             axes[:, j],
             roi,
             solvers,
@@ -179,8 +180,18 @@ def plot_regularization_curves(
             _n_voxels(results[roi].test_scores),
         )
 
-    fig.suptitle(f"{sub} : Median regularization parameter")
-    fig.tight_layout()
+    # sharey="row": one call per row, after all columns are drawn
+    for row_axes, solver in zip(axes, solvers):
+        if solver in LOG_SOLVERS:
+            continue
+        ax = row_axes[0]
+        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+        lo, hi = ax.get_ylim()
+        if hi - lo < 3:  # e.g. a single selected rank: keep integer ticks
+            mid = (lo + hi) / 2
+            ax.set_ylim(mid - 1.5, mid + 1.5)
+
+    fig.suptitle(f"{sub} : Regularization parameter distribution")
     return fig
 
 
@@ -283,7 +294,7 @@ def main():
     )
 
     # --- regularization-parameter curves ---
-    plot_regularization_curves(subj_name, rois, results)
+    plot_regularization_params_distribution(subj_name, rois, results)
 
     plt.show()
 
