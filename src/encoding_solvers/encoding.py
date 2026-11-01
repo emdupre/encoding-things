@@ -146,12 +146,13 @@ def main(
     # ignore inner groups for now
     groups, _ = define_groups(cv_strategy, sub_name, data_dir)
 
-    # apply data_percentage, subset data if data_percentage < 1
-    n_samples = int(data_percentage * len(X_matrix))
-    # Update n_samples to be a multiple of n_repeats to avoid
-    # issues with explainable variance calculation
+    # Apply data_percentage, subset data if data_percentage < 1. This assumes
+    # that the data is ordered by stimulus, and that each stimulus repeated
+    # n_repeats times. Subset the images according to percentage.
     n_repeats = 3  # NOTE : Hard-coded for THINGS dataset
-    n_samples -= n_samples % n_repeats    
+    n_stimuli_total = len(X_matrix) // n_repeats
+    n_stimuli_kept = int(data_percentage * n_stimuli_total)
+    n_samples = n_stimuli_kept * n_repeats
     print(
         f"Data percentage is {data_percentage}, "
         f"using {n_samples} samples for train and test."
