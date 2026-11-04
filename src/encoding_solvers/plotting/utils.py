@@ -67,7 +67,9 @@ def load_pkl_keys(results_pkl):
             n_coefs = []
             for feature_pl in fold.estimators_:
                 n_coefs.append(
-                    feature_pl.named_steps["ompselectridge"].omp_n_nonzero_coefs_
+                    feature_pl.named_steps[
+                        "ompselectridge"
+                    ].omp_n_nonzero_coefs_
                 )
             reg_params.append(np.asarray(n_coefs))
     elif "rrr" in str(results_pkl):
@@ -75,10 +77,18 @@ def load_pkl_keys(results_pkl):
     else:
         reg_params = scores["alphas"]
 
-    return test_scores, reg_params, fit_times, n_train_samples, explainable_variance
+    return (
+        test_scores,
+        reg_params,
+        fit_times,
+        n_train_samples,
+        explainable_variance,
+    )
 
 
-def create_results_dict(sub_name, roi, solver, metric, data_percent, data_path):
+def create_results_dict(
+    sub_name, roi, solver, metric, data_percent, data_path
+):
     """
     Create a results dictionary for a given subject, ROI, and metric.
 
@@ -93,12 +103,15 @@ def create_results_dict(sub_name, roi, solver, metric, data_percent, data_path):
 
     results_pkl = Path(
         data_path,
-        "encoding-results",
         f"{sub_name}_space-T1w_roi-{roi}_dataPercent-{data_percent}_cv-kfold_{metric}_{solver}.pkl",
     )
-    (test_scores, reg_params, fit_times, n_train_samples, explainable_variance) = (
-        load_pkl_keys(results_pkl)
-    )
+    (
+        test_scores,
+        reg_params,
+        fit_times,
+        n_train_samples,
+        explainable_variance,
+    ) = load_pkl_keys(results_pkl)
 
     res_dict["test_scores"] = test_scores
     res_dict["regularization_params"] = reg_params
@@ -130,7 +143,9 @@ def compute_quantile_and_std(test_scores, q=0.9, ddof=1):
     return quantile_scores, std_scores
 
 
-def gather_test_scores(sub_name, roi, data_path, metric="r2_score", data_percent=1.0):
+def gather_test_scores(
+    sub_name, roi, data_path, metric="r2_score", data_percent=1.0
+):
     """
     Parameters
     ----------
@@ -149,6 +164,7 @@ def gather_test_scores(sub_name, roi, data_path, metric="r2_score", data_percent
     scores = defaultdict()
     highest_scores = defaultdict()
     std_scores = defaultdict()
+    reg_params = defaultdict()
 
     for solver in solvers:
         try:
@@ -163,6 +179,7 @@ def gather_test_scores(sub_name, roi, data_path, metric="r2_score", data_percent
             scores[solver] = test_scores
             highest_scores[solver] = highest_test_scores
             std_scores[solver] = std_test_scores
+            reg_params[solver] = res_dict["regularization_params"]
 
         except FileNotFoundError:
             warnings.warn(
@@ -173,4 +190,4 @@ def gather_test_scores(sub_name, roi, data_path, metric="r2_score", data_percent
 
     expl_var = res_dict["explainable_variance"]
 
-    return scores, highest_scores, std_scores, expl_var
+    return scores, highest_scores, std_scores, expl_var, reg_params
