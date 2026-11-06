@@ -22,19 +22,19 @@ class MLPRegressor(nn.Module):
     Multi-layer perceptron for non-linear regression.
     """
 
-    def __init__(self, nInput, nHidden, nOutput):
+    def __init__(self, n_input=1, n_hidden=256, n_output=1):
         super().__init__()
         self.layers = nn.Sequential(
-            nn.Linear(nInput, nHidden),
+            nn.Linear(in_features=n_input, out_features=n_hidden),
             nn.ReLU(),
-            nn.Linear(nHidden, nHidden),
+            nn.Linear(in_features=n_hidden, out_features=n_hidden),
             nn.ReLU(),
-            nn.Linear(nHidden, nHidden),
+            nn.Linear(in_features=n_hidden, out_features=n_hidden),
             nn.ReLU(),
-            nn.Linear(nHidden, nOutput),
+            nn.Linear(in_features=n_hidden, out_features=n_output),
         )
 
-    def fit(self, X, y, n_train_steps=50000, learning_rate=1e-4):
+    def fit(self, X, y, n_train_steps=50, learning_rate=1e-4):
         # Define the loss function and optimizer
         loss_function = nn.MSELoss()
         optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
@@ -45,15 +45,17 @@ class MLPRegressor(nn.Module):
             current_loss = 0.0
 
             # Iterate over the training data
-            for i, data in enumerate(zip(X, y)):
-                # Get inputs
-                inputs, targets = data
+            for inputs, targets in zip(X, y):
                 # Zero the gradients
                 optimizer.zero_grad()
                 # Perform forward pass (make sure to supply the input in the right way)
-                outputs = self(torch.reshape(inputs, (len(inputs), 1))).squeeze()
+                outputs = self(
+                    torch.as_tensor(inputs, dtype=torch.float32).view(-1, 1)
+                ).squeeze()
                 # Compute loss
-                loss = loss_function(outputs, targets)
+                loss = loss_function(
+                    outputs, torch.as_tensor(targets, dtype=torch.float32).view(-1, 1)
+                )
                 # Perform backward pass
                 loss.backward()
                 # Perform optimization
@@ -78,9 +80,6 @@ def mlp_pytorch(
     groups=None,
     scoring=r2_score,
     cv_strategy="image",
-    n_input=1,
-    n_hidden=10,
-    n_output=1,
 ):
     """
     Parameters
@@ -102,7 +101,6 @@ def mlp_pytorch(
     scores = defaultdict()
     train_indices, test_indices = [], []
     test_scores = []
-    best_alphas = []
 
     if groups is None:
         outer_cv = KFold(shuffle=True, random_state=0)
@@ -112,7 +110,7 @@ def mlp_pytorch(
         elif cv_strategy == "multilabel":
             outer_cv = LeaveOneGroupOut()
 
-    mlp = MLPRegressor(n_input, n_hidden, n_output)
+    mlp = MLPRegressor()
 
     for train_index, test_index in outer_cv.split(X_matrix, y_matrix, groups):
         start_time = perf_counter()
