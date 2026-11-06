@@ -5,7 +5,7 @@ import numpy as np
 from himalaya.scoring import correlation_score
 from sklearn import base, metrics
 from sklearn.decomposition import TruncatedSVD
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import Ridge, RidgeCV
 from sklearn.model_selection import (
     GroupKFold,
     KFold,
@@ -56,7 +56,6 @@ class ReducedRankRidgeRegressionCV(base.BaseEstimator):
 
         """
 
-        ridge = Ridge(fit_intercept=True)
         ## Remark: For RRRR, can't optimize one alpha per target (since only one rank for all targets)
 
         ## Splitting Data into train/validation sets for the rank grid search (75/25)
@@ -65,42 +64,47 @@ class ReducedRankRidgeRegressionCV(base.BaseEstimator):
         Yt, Yv = Y[: int(0.75 * n)], Y[int(0.75 * n) :]
 
         ## Finding best rank hyperparameters (2D-GridSearch)
-        score = np.zeros((self.n_ranks))
+        score = np.zeros((self.n_alphas, self.n_ranks))
 
-        ## fitting the ridge on the train set
-        ridge.set_params(alpha=self.alphas[0])  # only one alpha for all targets
-        ridge.fit(Xt, Yt)
+        # Nested computation of the val score for every pair of (alpha, rank)
+        for a, alpha in enumerate(self.alphas):
+            ridge = Ridge(alpha=alpha, fit_intercept=True)
+            ridge.fit(Xt, Yt)
+            Yt_pred = ridge.predict(Xt)
+            Yv_base = ridge.predict(Xv)
 
-        ## predicting the validation target with the trained ridge
-        Yt_pred = ridge.predict(Xt)
+            for i in range(self.n_ranks):
+                svd = TruncatedSVD(n_components=self.ranks[i], random_state=0)
+                svd.fit(Yt_pred)
+                Vr = svd.components_.T  # shape: (q, rank)
+                # computing the validation score for every pair of (alpha, rank)
+                Yv_pred = Yv_base @ Vr @ Vr.T
+                score[a, i] = metrics.r2_score(Yv.ravel(), Yv_pred.ravel())
 
-        for i in range(self.n_ranks):
-            svd = TruncatedSVD(n_components=self.ranks[i])
-            svd.fit(Yt_pred)
-            Vr = svd.components_.T  # shape: (q, rank)
-
-            ## computing the validation score for every pair of (alpha, rank)
-            Yv_pred = ridge.predict(Xv) @ Vr @ Vr.T
-            score[i] = metrics.r2_score(Yv.ravel(), Yv_pred.ravel())
-
-        idx_opt_rank = np.argmax(score)
-        self.rank_ = self.ranks[idx_opt_rank]
-        self.best_score_ = score[idx_opt_rank]
+        a_opt, i_opt = np.unravel_index(np.argmax(score), score.shape)
+        self.alpha_ = self.alphas[a_opt]
+        self.rank_ = self.ranks[i_opt]
+        self.best_score_ = score[a_opt, i_opt]
+        self.cv_scores_ = score
 
         ## Re-Computing the optimal regressions coefficents for the RRRR on full data
+        ridge = Ridge(alpha=self.alpha_, fit_intercept=True)
         ridge.fit(X, Y)
         svd = TruncatedSVD(n_components=self.rank_)
         svd.fit(ridge.predict(X))
         Vr = svd.components_.T
         self.coef_ = ridge.coef_.T @ Vr @ Vr.T  # shape: (p, q)
-        self.intercept_ = ridge.intercept_  # shape: (q)
+        self.intercept_ = ridge.intercept_ @ Vr @ Vr.T
+        return self
 
     def predict(self, X):
         return self.intercept_ + X @ self.coef_
 
     def score(self, X, y):
         y_pred = self.predict(X)
-        return metrics.r2_score(y.ravel(), y_pred.ravel(), multioutput="raw_values")
+        return metrics.r2_score(
+            y.ravel(), y_pred.ravel(), multioutput="raw_values"
+        )
 
     def eval(self, y_pred, y_true):
         return self.corr(y_pred, y_true)
@@ -158,6 +162,7 @@ def ridgeCV_rrr(
     train_indices, test_indices = [], []
     test_scores = []
     best_ranks = []
+    best_alphas = []
 
     if groups is None:
         outer_cv = KFold(shuffle=True, random_state=0)
@@ -167,7 +172,7 @@ def ridgeCV_rrr(
         elif cv_strategy == "multilabel":
             outer_cv = LeaveOneGroupOut()
 
-    alphas = np.array([100])
+    alphas = np.array([0.1, 1.0, 10.0, 100.0, 1000.0])
     pl = make_pipeline(
         StandardScaler(with_mean=True, with_std=False),
         ReducedRankRidgeRegressionCV(
@@ -196,10 +201,12 @@ def ridgeCV_rrr(
 
         test_scores.append(score)
         best_ranks.append(pl[-1].rank_)
+        best_alphas.append(pl[-1].alpha_)
         fit_time = perf_counter() - start_time
 
     scores["fit_time"] = fit_time
     scores["ranks"] = best_ranks
+    scores["alphas"] = best_alphas
     scores["per_target_test_scores"] = test_scores
     scores["indices"] = {"train": train_indices, "test": test_indices}
 
