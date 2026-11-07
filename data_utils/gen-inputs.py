@@ -9,19 +9,20 @@ import pandas as pd
 from nilearn import maskers, masking
 
 
-def _load_stim_arrays(data_dir):
+def _load_stim_arrays(data_dir, model):
     """
     Parameters
     ----------
     data_dir : str
+    model : str
+        Name of the feature model, e.g. "clip" or "dino".
     """
-    clip_feats = np.load(Path(data_dir, "clip-features", "features.npy"))
-    clip_fnames = np.genfromtxt(
-        Path(data_dir, "clip-features", "file_names.txt"), dtype=str
-    )
-    clip_fnames = [Path(f).stem for f in clip_fnames]
+    feats_dir = Path(data_dir, f"{model}-features")
+    feats = np.load(feats_dir / "features.npy")
+    fnames = np.genfromtxt(feats_dir / "file_names.txt", dtype=str)
+    fnames = [Path(f).stem for f in fnames]
 
-    return clip_feats, clip_fnames
+    return feats, fnames
 
 
 def _load_brain_arrays(sub_name, roi, space, data_dir):
@@ -38,19 +39,20 @@ def _load_brain_arrays(sub_name, roi, space, data_dir):
 
     beta_h5 = h5py.File(Path(data_dir, "betas", beta_fname), "r")
     mask = nib.nifti1.Nifti1Image(
-        np.array(beta_h5["mask_array"]), affine=np.array(beta_h5["mask_affine"])
+        np.array(beta_h5["mask_array"]),
+        affine=np.array(beta_h5["mask_affine"]),
     )
 
     if roi is not None:
-        roi_fname = (
-            f"{sub_name}_task-floc_space-{space}*_roi-{roi}_*_desc-smooth_mask.nii.gz"
-        )
+        roi_fname = f"{sub_name}_task-floc_space-{space}*_roi-{roi}_*_desc-smooth_mask.nii.gz"
         try:
             roi_nii = nib.load(
-                next(Path(data_dir, "rois", sub_name).glob(roi_fname))
+                next(Path(data_dir, "encoding-inputs", "rois").glob(roi_fname))
             )  # Shape (76, 90, 71)
         except StopIteration:
-            raise FileNotFoundError(f"Could not find ROI file matching {roi_fname}")
+            raise FileNotFoundError(
+                f"Could not find ROI file matching {roi_fname}"
+            )
 
         # plotting.view_img(roi_nii, bg_img=unmask_beta)
         # FFA ROI raises concern on visual inspection
@@ -169,7 +171,7 @@ def _category_mapping(sub_name, data_dir):
     annot_fname = f"{sub_name}_task-things_desc-perTrial_annotation.tsv"
 
     annot_df = pd.read_csv(Path(data_dir, "annot", annot_fname), sep="\t")
-    annot_df = annot_df.loc[annot_df["exclude_session"] == False]
+    # annot_df = annot_df.loc[annot_df["exclude_session"] == False]
     annot_df = annot_df.loc[annot_df["atypical"] == False]
 
     cat53_mask = annot_df[annot_df["highercat53_names"] != "[]"].index
@@ -189,7 +191,7 @@ def _category_mapping(sub_name, data_dir):
     return cat_dict
 
 
-def gen_inputs(sub_name, roi, space, data_dir):
+def gen_inputs(sub_name, roi, space, data_dir, feat_model):
     """
     Parameters
     ----------
@@ -201,7 +203,7 @@ def gen_inputs(sub_name, roi, space, data_dir):
     y_vals, stim_names, session_labels, mask = _load_brain_arrays(
         sub_name, roi, space, data_dir
     )
-    clip_feats, clip_fnames = _load_stim_arrays(data_dir)
+    clip_feats, clip_fnames = _load_stim_arrays(data_dir, feat_model)
 
     stim_vec, y_matrix, y_sessions, X_matrix = _clean_inputs(
         stim_names,
@@ -230,7 +232,12 @@ def gen_inputs(sub_name, roi, space, data_dir):
     default="/Users/emdupre/Desktop/things-encode/",
     help="Data directory.",
 )
-def main(sub_name, roi, space, data_dir):
+@click.option(
+    "--feat_model",
+    default="clip",
+    help="Model used to extract image features. Must be in ['clip', 'dino']",
+)
+def main(sub_name, roi, space, data_dir, feat_model):
     """
     Create trialwise inputs for voxelwise encoding models on THINGS data using
     existing CLIP embeddings (previously generated using thingsvision).
@@ -249,14 +256,19 @@ def main(sub_name, roi, space, data_dir):
         err_msg = f"Unrecognized space {space}"
         raise ValueError(err_msg)
 
+    if feat_model not in ["clip", "dino"]:
+        err_msg = f"Unrecognized feature model {feat_model}"
+        raise ValueError(err_msg)
+
     stim_vec, y_matrix, y_sessions, X_matrix, mask, cat_dict = gen_inputs(
-        sub_name, roi, space, data_dir
+        sub_name, roi, space, data_dir, feat_model
     )
 
     out_stim = Path(
         data_dir,
         "encoding-inputs",
         space,
+        f"{feat_model}-embeddings",
         f"{sub_name}_stim_labels.txt",
     )
     if not out_stim.is_file():
@@ -267,6 +279,7 @@ def main(sub_name, roi, space, data_dir):
         data_dir,
         "encoding-inputs",
         space,
+        f"{feat_model}-embeddings",
         f"{sub_name}_session_labels.txt",
     )
     if not out_y_sessions.is_file():
@@ -277,6 +290,7 @@ def main(sub_name, roi, space, data_dir):
         data_dir,
         "encoding-inputs",
         space,
+        f"{feat_model}-embeddings",
         f"{sub_name}_stim_features.npy",
     )
     if not out_X_matrix.is_file():
@@ -288,6 +302,7 @@ def main(sub_name, roi, space, data_dir):
             data_dir,
             "encoding-inputs",
             space,
+            f"{feat_model}-embeddings",
             f"{sub_name}_space-{space}_roi-{roi}_brain_responses.npy",
         )
     else:
@@ -295,6 +310,7 @@ def main(sub_name, roi, space, data_dir):
             data_dir,
             "encoding-inputs",
             space,
+            f"{feat_model}-embeddings",
             f"{sub_name}_space-{space}_brain_responses.npy",
         )
     if not out_y_matrix.is_file():
@@ -308,6 +324,7 @@ def main(sub_name, roi, space, data_dir):
         data_dir,
         "encoding-inputs",
         space,
+        f"{feat_model}-embeddings",
         f"{sub_name}_space-{space}_brain_mask.nii.gz",
     )
     if not out_mask.is_file():
@@ -318,6 +335,7 @@ def main(sub_name, roi, space, data_dir):
         data_dir,
         "encoding-inputs",
         space,
+        f"{feat_model}-embeddings",
         f"{sub_name}_category53_mapping.json",
     )
     if not out_dict.is_file():
