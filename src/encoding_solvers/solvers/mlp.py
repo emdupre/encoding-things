@@ -10,11 +10,28 @@ from sklearn.model_selection import (
     KFold,
     LeaveOneGroupOut,
 )
+from torch.utils.data import DataLoader, Dataset
 
 """
 Adapted from :
 https://michael-franke.github.io/npNLG/04-ANNs/04d-MLP-pytorch.html
 """
+
+
+# Creating our dataset class
+class Dataset(Dataset):
+    # Constructor
+    def __init__(self, X_matrix, y_matrix):
+        self.X = X_matrix
+        self.y = y_matrix
+
+    # Getting the data
+    def __getitem__(self, index):
+        return self.X[index], self.y[index]
+
+    # Getting length of the data
+    def __len__(self):
+        return len(self.X)
 
 
 class MLPRegressor(nn.Module):
@@ -34,7 +51,7 @@ class MLPRegressor(nn.Module):
             nn.Linear(in_features=n_hidden, out_features=n_output),
         )
 
-    def fit(self, X, y, n_train_steps=50, learning_rate=1e-4):
+    def fit(self, data_loader, n_train_steps=1000, learning_rate=1e-4):
         # Define the loss function and optimizer
         loss_function = nn.MSELoss()
         optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
@@ -45,17 +62,13 @@ class MLPRegressor(nn.Module):
             current_loss = 0.0
 
             # Iterate over the training data
-            for inputs, targets in zip(X, y):
+            for X, y in data_loader:
                 # Zero the gradients
                 optimizer.zero_grad()
-                # Perform forward pass (make sure to supply the input in the right way)
-                outputs = self(
-                    torch.as_tensor(inputs, dtype=torch.float32).view(-1, 1)
-                ).squeeze()
+                # Perform forward pass
+                outputs = self(torch.as_tensor(X, dtype=torch.float32)).squeeze()
                 # Compute loss
-                loss = loss_function(
-                    outputs, torch.as_tensor(targets, dtype=torch.float32).view(-1, 1)
-                )
+                loss = loss_function(outputs, torch.as_tensor(y, dtype=torch.float32))
                 # Perform backward pass
                 loss.backward()
                 # Perform optimization
@@ -63,9 +76,9 @@ class MLPRegressor(nn.Module):
                 # Print statistics
                 current_loss += loss.item()
 
-            if (epoch + 1) % 2500 == 0:
-                print("Loss after epoch %5d: %.3f" % (epoch + 1, current_loss))
-                current_loss = 0.0
+            # if (epoch + 1) % 2500 == 0:
+            print("Loss after epoch %5d: %.3f" % (epoch + 1, current_loss))
+            current_loss = 0.0
 
         # Process is complete.
         print("Training process has finished.")
@@ -80,6 +93,7 @@ def mlp_pytorch(
     groups=None,
     scoring=r2_score,
     cv_strategy="image",
+    batch_size=64,
 ):
     """
     Parameters
@@ -101,6 +115,7 @@ def mlp_pytorch(
     scores = defaultdict()
     train_indices, test_indices = [], []
     test_scores = []
+    fit_times = []
 
     if groups is None:
         outer_cv = KFold(shuffle=True, random_state=0)
@@ -110,7 +125,9 @@ def mlp_pytorch(
         elif cv_strategy == "multilabel":
             outer_cv = LeaveOneGroupOut()
 
-    mlp = MLPRegressor()
+    mlp = MLPRegressor(
+        n_input=X_matrix.shape[1], n_output=y_matrix.shape[1], n_hidden=256
+    )
 
     for train_index, test_index in outer_cv.split(X_matrix, y_matrix, groups):
         start_time = perf_counter()
@@ -118,17 +135,31 @@ def mlp_pytorch(
         train_indices.append(train_index)
         test_indices.append(test_index)
 
-        mlp.fit(X_matrix[train_index], y_matrix[train_index])
-        y_pred = mlp.forward(X_matrix[test_index]).detach().numpy()
+        # Creating DataLoader object
+        train_dataset = Dataset(X_matrix[train_index], y_matrix[train_index])
+        data_loader = DataLoader(
+            dataset=train_dataset, batch_size=batch_size, shuffle=True
+        )
+
+        mlp.fit(data_loader)
+
+        y_pred = (
+            mlp.forward(torch.as_tensor(X_matrix[test_index], dtype=torch.float32))
+            .detach()
+            .numpy()
+        )
 
         if scoring is correlation_score:
             test_scores.append(correlation_score(y_matrix[test_index], y_pred))
         else:
-            test_scores.append(r2_score(y_matrix[test_index], y_pred))
+            test_scores.append(
+                r2_score(y_matrix[test_index], y_pred, multioutput="raw_values")
+            )
 
         fit_time = perf_counter() - start_time
+        fit_times.append(fit_time)
 
-    scores["fit_time"] = fit_time
+    scores["fit_time"] = fit_times
     scores["alphas"] = None
     scores["per_target_test_scores"] = test_scores
     scores["indices"] = {"train": train_indices, "test": test_indices}
