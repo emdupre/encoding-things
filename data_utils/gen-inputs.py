@@ -39,20 +39,17 @@ def _load_brain_arrays(sub_name, roi, space, data_dir):
 
     beta_h5 = h5py.File(Path(data_dir, "betas", beta_fname), "r")
     mask = nib.nifti1.Nifti1Image(
-        np.array(beta_h5["mask_array"]),
-        affine=np.array(beta_h5["mask_affine"]),
+        np.array(beta_h5["mask_array"]), affine=np.array(beta_h5["mask_affine"]),
     )
 
     if roi is not None:
         roi_fname = f"{sub_name}_task-floc_space-{space}*_roi-{roi}_*_desc-smooth_mask.nii.gz"
         try:
             roi_nii = nib.load(
-                next(Path(data_dir, "encoding-inputs", "rois").glob(roi_fname))
+                next(Path(data_dir, "rois", sub_name).glob(roi_fname))
             )  # Shape (76, 90, 71)
         except StopIteration:
-            raise FileNotFoundError(
-                f"Could not find ROI file matching {roi_fname}"
-            )
+            raise FileNotFoundError(f"Could not find ROI file matching {roi_fname}")
 
         # plotting.view_img(roi_nii, bg_img=unmask_beta)
         # FFA ROI raises concern on visual inspection
@@ -72,8 +69,8 @@ def _load_brain_arrays(sub_name, roi, space, data_dir):
     for _, row in annot_df.iterrows():
         # this is ugly, but we know that sessions are always labeled ses-???
         # in the dataframe. since they're labelled as digits in the h5, munge them a bit
-        ses_idx = str(int(row["session"][-3:]))
-        run_idx = str(row["run"])
+        ses_idx = str(int(row["session_id"][-3:]))
+        run_idx = str(row["run_id"])
 
         # these are one-indexed rather than zero-indexed
         trial_idx = row["TrialNumber"] - 1
@@ -95,7 +92,7 @@ def _load_brain_arrays(sub_name, roi, space, data_dir):
         y_vals.append(func_beta.squeeze())
 
         stim_names.append(row["image_name"])
-        session_labels.append(row["session"])
+        session_labels.append(row["session_id"])
 
     return y_vals, stim_names, session_labels, mask
 
@@ -134,12 +131,13 @@ def _clean_inputs(stim_arr, y_arr, y_labels, x_arr, x_labels):
     y_arr = np.asarray(y_arr)
     y_labels = np.asarray(y_labels)
     x_arr = np.asarray(x_arr)
+    x_labels = np.asarray(x_labels)
 
     label, counts = np.unique(stim_arr, return_counts=True)
     incl_labels = label[counts == 3]
 
     # filter clip features by incl_labels
-    x_mask = [x_label in incl_labels for x_label in x_labels]
+    # x_mask = [x_label in incl_labels for x_label in x_labels]
 
     # consider only stimuli with at least three repetitions
     y_mask = [s in incl_labels for s in stim_arr]
@@ -156,7 +154,15 @@ def _clean_inputs(stim_arr, y_arr, y_labels, x_arr, x_labels):
 
     incl_y_arr = y_arr[y_mask][sort_idx]
     incl_y_labels = y_labels[y_mask][sort_idx]
-    incl_x_arr = np.repeat(x_arr[x_mask], n_repeats, axis=0)
+
+    # order of unique stimuli on the y side (alphabetical, = np.unique output)
+    assert len(set(x_labels)) == len(x_labels), "duplicate x labels"
+    unique_sorted = np.unique(sorted_stim)
+    x_index = {lab: i for i, lab in enumerate(x_labels)}
+    x_rows = [x_index[lab] for lab in unique_sorted]
+    incl_x_arr = np.repeat(x_arr[x_rows], n_repeats, axis=0)
+    incl_x_labels = np.repeat(x_labels[x_rows], n_repeats)
+    assert np.all(incl_x_labels == sorted_stim)  # sanity check
 
     return sorted_stim, incl_y_arr, incl_y_labels, incl_x_arr
 
@@ -203,14 +209,14 @@ def gen_inputs(sub_name, roi, space, data_dir, feat_model):
     y_vals, stim_names, session_labels, mask = _load_brain_arrays(
         sub_name, roi, space, data_dir
     )
-    clip_feats, clip_fnames = _load_stim_arrays(data_dir, feat_model)
+    embd_feats, embd_fnames = _load_stim_arrays(data_dir, feat_model)
 
     stim_vec, y_matrix, y_sessions, X_matrix = _clean_inputs(
         stim_names,
         y_vals,
         session_labels,
-        clip_feats,
-        clip_fnames,
+        embd_feats,
+        embd_fnames,
     )
 
     cat_dict = _category_mapping(sub_name, data_dir)
