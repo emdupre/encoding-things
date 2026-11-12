@@ -176,7 +176,7 @@ def main(
         scores = ridgeCV_rrr(
             X_matrix,
             y_matrix,
-            ranks=[2**i for i in range(7)],
+            ranks=[2 * i for i in range(1, 20)],
             groups=groups,
             scoring=scoring,
             cv_strategy=cv_strategy,
