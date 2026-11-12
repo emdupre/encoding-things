@@ -9,6 +9,7 @@ from sklearn.metrics import r2_score
 
 from encoding_solvers.cross_validation import define_groups
 from encoding_solvers.solvers import (
+    mlp_pytorch,
     ompCV_ridge_sklearn,
     ompCV_sklearn,
     ridgeCV_rrr,
@@ -80,9 +81,9 @@ def explainable_variance(y_matrix, bias_correction=True, do_zscore=True):
 @click.option(
     "--solver",
     default="himalaya",
-    type=click.Choice(["sklearn", "rrr", "ompCV", "ompCV_ridge"]),
+    type=click.Choice(["sklearn", "rrr", "ompCV", "ompCV_ridge", "mlp"]),
     help="Engine for running encoding analyses. Must be either 'sklearn' "
-    "'rrr', 'ompCV', or 'ompCV_ridge'.",
+    "'rrr', 'ompCV', 'ompCV_ridge', or 'mlp'.",
 )
 @click.option(
     "--scoring_metric",
@@ -201,6 +202,16 @@ def main(
             cv_strategy=cv_strategy,
             max_nonzero_coefs=100,
             inner_cv=5,
+        )
+
+    elif solver == "mlp":
+        scores = mlp_pytorch(
+            X_matrix,
+            y_matrix,
+            groups=groups,
+            scoring=scoring,
+            cv_strategy=cv_strategy,
+            batch_size=64,
         )
 
     expl_var = explainable_variance(y_matrix)
