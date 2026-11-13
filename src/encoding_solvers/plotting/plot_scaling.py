@@ -5,7 +5,7 @@ from itertools import chain
 import matplotlib.pyplot as plt
 import numpy as np
 
-# from .utils import _get_solver_colors, _get_solver_names, gather_test_scores
+# from .utils import Q, _get_solver_colors, _get_solver_names, gather_test_scores
 
 
 def plot_scaling_curves(
@@ -49,7 +49,7 @@ def plot_scaling_curves(
         )
 
     upper_expl_var = [
-        np.quantile(expl_var_all[roi][percent], 0.9) for percent in percents
+        np.quantile(expl_var_all[roi][percent], float(f"0.{Q}")) for percent in percents
     ]
     ax.plot(
         x_ticks,
@@ -75,7 +75,7 @@ def main():
     data_path = "/Users/emdupre/Desktop/UdeM-Projects/things-encode/"
     subj_name = "sub-03"  # "sub-01", "sub-02",
 
-    rois = ["EBA", "PPA", "pSTS"]
+    rois = ["EBA", "PPA", "pSTS"]  #
     n_rois = len(rois)
 
     metric_ = "r2_score"  # "correlation_score" or "r2_score"
@@ -125,6 +125,9 @@ def main():
 
             expl_var_all[roi][f"percent-{percent}"] = expl_var
 
+            # print(f"percent-{percent}")
+            # print(scores_all[roi][f"percent-{percent}"].keys())
+
         plot_scaling_curves(
             ax,
             roi,
@@ -144,7 +147,7 @@ def main():
 
     # set overall figure title
     fig.suptitle(
-        f"{subj_name} : " f"90th percentile {metric_name} (± std across folds)",
+        f"{subj_name} : " f"{Q}th percentile {metric_name} (± std across folds)",
         fontsize=14,
     )
     plt.show()

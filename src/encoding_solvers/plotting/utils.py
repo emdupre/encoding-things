@@ -5,6 +5,8 @@ from pathlib import Path
 
 import numpy as np
 
+Q = 99
+
 
 def _get_solver_colors(solver):
     solver_colors = {
@@ -12,6 +14,7 @@ def _get_solver_colors(solver):
         "rrr": "mediumorchid",
         "ompCV": "cornflowerblue",
         "ompCV_ridge": "mediumaquamarine",
+        "mlp": "teal",
     }
 
     return solver_colors[solver]
@@ -23,6 +26,7 @@ def _get_solver_names(solver):
         "rrr": "Reduced Rank Ridge",
         "ompCV": "Orthogonal Matching Pursuit (OMP)",
         "ompCV_ridge": "OMP-refined Ridge",
+        "mlp": "Multi-layer Perceptron",
     }
     return solver_plot_names[solver]
 
@@ -145,7 +149,7 @@ def gather_test_scores(sub_name, roi, data_path, metric="r2_score", data_percent
     highest_scores: dict
     std_scores: dict
     """
-    solvers = ["sklearn", "ompCV", "rrr", "ompCV_ridge"]  # "himalaya",
+    solvers = ["sklearn", "ompCV", "rrr", "ompCV_ridge", "mlp"]  # "himalaya",
     scores = defaultdict()
     highest_scores = defaultdict()
     std_scores = defaultdict()
@@ -157,7 +161,7 @@ def gather_test_scores(sub_name, roi, data_path, metric="r2_score", data_percent
             )
             test_scores = res_dict["test_scores"]
             highest_test_scores, std_test_scores = compute_quantile_and_std(
-                test_scores, q=0.9, ddof=1
+                test_scores, q=float(f"0.{Q}"), ddof=1
             )
 
             scores[solver] = test_scores
