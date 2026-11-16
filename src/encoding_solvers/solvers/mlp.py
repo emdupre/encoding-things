@@ -39,19 +39,21 @@ class MLPRegressor(nn.Module):
     Multi-layer perceptron for non-linear regression.
     """
 
-    def __init__(self, n_input=1, n_hidden=256, n_output=1):
+    def __init__(self, n_input=1, n_hidden=256, n_bottleneck=64, n_output=1):
         super().__init__()
         self.layers = nn.Sequential(
             nn.Linear(in_features=n_input, out_features=n_hidden),
             nn.ReLU(),
-            nn.Linear(in_features=n_hidden, out_features=n_hidden),
+            nn.Linear(in_features=n_hidden, out_features=n_bottleneck),
             nn.ReLU(),
-            nn.Linear(in_features=n_hidden, out_features=n_hidden),
+            nn.Linear(in_features=n_bottleneck, out_features=n_bottleneck),
+            nn.ReLU(),
+            nn.Linear(in_features=n_bottleneck, out_features=n_hidden),
             nn.ReLU(),
             nn.Linear(in_features=n_hidden, out_features=n_output),
         )
 
-    def fit(self, data_loader, n_train_steps=1000, learning_rate=1e-4):
+    def fit(self, data_loader, n_train_steps=200, learning_rate=1e-4):
         # Define the loss function and optimizer
         loss_function = nn.MSELoss()
         optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
@@ -93,7 +95,7 @@ def mlp_pytorch(
     groups=None,
     scoring=r2_score,
     cv_strategy="image",
-    batch_size=64,
+    batch_size=50,
 ):
     """
     Parameters
@@ -126,7 +128,10 @@ def mlp_pytorch(
             outer_cv = LeaveOneGroupOut()
 
     mlp = MLPRegressor(
-        n_input=X_matrix.shape[1], n_output=y_matrix.shape[1], n_hidden=256
+        n_input=X_matrix.shape[1],
+        n_output=y_matrix.shape[1],
+        n_hidden=256,
+        n_bottleneck=64,
     )
 
     for train_index, test_index in outer_cv.split(X_matrix, y_matrix, groups):
