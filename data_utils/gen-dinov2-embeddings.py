@@ -32,8 +32,9 @@ def get_embedding(img_path):
 
 embeddings = []
 file_names = []
-stimuli_dir = (
-    "/Users/emdupre/Desktop/UdeM-Projects/things-encode/cneuromod.things.stimuli"
+stimuli_dir = Path(
+    # "/Users/emdupre/Desktop/UdeM-Projects/things-encode/cneuromod.things.stimuli"
+    "/Users/emdupre/Desktop/UdeM-Projects/nsd/stimuli"
 )
 
 for img_path in tqdm(Path(stimuli_dir).rglob("*.jpg"), desc="Processing images"):
@@ -43,5 +44,12 @@ for img_path in tqdm(Path(stimuli_dir).rglob("*.jpg"), desc="Processing images")
     file_names.append(img_path.name)
 
 # Save embeddings and file names to .npy files
-np.save("DINOv2-giant-embeddings.npy", np.array(embeddings))
-np.savetxt("DINOv2-giant-file_names.txt", np.array(file_names), fmt="%s")
+np.save(
+    Path(stimuli_dir.parent, "stimuli.dino-features", "DINOv2-giant-embeddings.npy"),
+    np.array(embeddings),
+)
+np.savetxt(
+    Path(stimuli_dir.parent, "stimuli.dino-features", "DINOv2-giant-file_names.txt"),
+    np.array(file_names),
+    fmt="%s",
+)
