@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import click
 import numpy as np
 import torch
 from PIL import Image
@@ -18,20 +19,30 @@ def get_prediction(img_path):
     return prediction.detach().numpy()
 
 
-if __name__ == "__main__":
+@click.command()
+@click.option(
+    "--sub_name",
+    type=click.Choice(["subj01", "subj02", "subj05", "subj07"]),
+    default="subj01",
+    help="Subject name.",
+)
+@click.option(
+    "--stimuli_dir",
+    default="/home/emdupre/links/projects/def-pbellec/emdupre/NSD/stimuli",
+    help="Stimulus directory.",
+)
+def main(subj_id, stimuli_dir):
     image_processor = AutoImageProcessor.from_pretrained("facebook/dinov2-large")
-    ## whole brain model, including non visual brain
+    # whole brain model, 327684 vertices in fsaverage
     model = AutoModel.from_pretrained(
         "huzey/brain-synthesizer",
         trust_remote_code=True,
-        subject="subj01",  # options: subj01, subj02, subj05, subj07
+        subject=subj_id,  # options: subj01, subj02, subj05, subj07
     )
 
-    stimuli_dir = Path(
-        # "/Users/emdupre/Desktop/UdeM-Projects/things-encode/cneuromod.things.stimuli"
-        # "/Users/emdupre/Desktop/UdeM-Projects/nsd/stimuli"
-        "/home/emdupre/links/projects/def-pbellec/emdupre/NSD/stimuli"
-    )
+    stimuli_dir = Path(stimuli_dir)
+    # "/Users/emdupre/Desktop/UdeM-Projects/things-encode/cneuromod.things.stimuli"
+    # "/Users/emdupre/Desktop/UdeM-Projects/nsd/stimuli"
     output_dir = Path(stimuli_dir.parent, "stimuli.algonauts-predictions")
     output_dir.mkdir(exist_ok=True, parents=True)
 
@@ -54,3 +65,8 @@ if __name__ == "__main__":
         np.array([img.name for img in img_paths]),
         fmt="%s",
     )
+    return
+
+
+if __name__ == "__main__":
+    main()
