@@ -39,7 +39,7 @@ class MLPRegressor(nn.Module):
     Multi-layer perceptron for non-linear regression.
     """
 
-    def __init__(self, n_input=1, n_hidden=256, n_bottleneck=64, n_output=1):
+    def __init__(self, n_input=1, n_hidden=256, n_bottleneck=8, n_output=1):
         super().__init__()
         self.layers = nn.Sequential(
             nn.Linear(in_features=n_input, out_features=n_hidden),
