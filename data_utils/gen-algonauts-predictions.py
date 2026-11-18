@@ -53,21 +53,21 @@ def main(subj_id, stimuli_dir):
     output_dir = Path(stimuli_dir.parent, "stimuli.algonauts-predictions")
     output_dir.mkdir(exist_ok=True, parents=True)
 
-    img_paths = list(Path(stimuli_dir).rglob("*.jpg"))[:10]
+    img_paths = list(Path(stimuli_dir).rglob("*.jpg"))
     predictions = thread_map(get_prediction, img_paths, max_workers=10)
 
     # Save embeddings and file names to .npy files
     np.save(
         Path(
             output_dir,
-            "brain-synthesizer-subj01-predictions.npy",
+            f"brain-synthesizer-{subj_id}-predictions.npy",
         ),
         np.array(predictions),
     )
     np.savetxt(
         Path(
             output_dir,
-            "brain-synthesizer-subj01-file_names.txt",
+            f"brain-synthesizer-{subj_id}-file_names.txt",
         ),
         np.array([img.name for img in img_paths]),
         fmt="%s",
