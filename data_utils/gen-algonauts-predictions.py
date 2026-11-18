@@ -21,6 +21,12 @@ from transformers import AutoImageProcessor, AutoModel
     help="Stimulus directory.",
 )
 def main(subj_id, stimuli_dir):
+    stimuli_dir = Path(stimuli_dir)
+    # "/Users/emdupre/Desktop/UdeM-Projects/things-encode/cneuromod.things.stimuli"
+    # "/Users/emdupre/Desktop/UdeM-Projects/nsd/stimuli"
+    output_dir = Path(stimuli_dir.parent, "stimuli.algonauts-predictions")
+    output_dir.mkdir(exist_ok=True, parents=True)
+
     image_processor = AutoImageProcessor.from_pretrained(
         "facebook/dinov2-large",
         revision="main",
@@ -40,38 +46,24 @@ def main(subj_id, stimuli_dir):
         pixel_values = image_processor(images=image, return_tensors="pt")[
             "pixel_values"
         ]
-        prediction = model(pixel_values)
+        prediction = model(pixel_values).detach().numpy()
         # torch.Size([1, 327684]), vertices in fsaverage,
         # first half is left hemisphere, second half right hemisphere
         # print(prediction.shape)
 
-        return prediction.detach().numpy()
-
-    stimuli_dir = Path(stimuli_dir)
-    # "/Users/emdupre/Desktop/UdeM-Projects/things-encode/cneuromod.things.stimuli"
-    # "/Users/emdupre/Desktop/UdeM-Projects/nsd/stimuli"
-    output_dir = Path(stimuli_dir.parent, "stimuli.algonauts-predictions")
-    output_dir.mkdir(exist_ok=True, parents=True)
+        # Save prediction to .npy file
+        np.save(
+            Path(
+                output_dir,
+                f"brain-synthesizer-{subj_id}-{img_path.stem}-prediction.npy",
+            ),
+            prediction,
+        )
+        return
 
     img_paths = list(Path(stimuli_dir).rglob("*.jpg"))
-    predictions = thread_map(get_prediction, img_paths, max_workers=10)
+    thread_map(get_prediction, img_paths, max_workers=50)
 
-    # Save embeddings and file names to .npy files
-    np.save(
-        Path(
-            output_dir,
-            f"brain-synthesizer-{subj_id}-predictions.npy",
-        ),
-        np.array(predictions),
-    )
-    np.savetxt(
-        Path(
-            output_dir,
-            f"brain-synthesizer-{subj_id}-file_names.txt",
-        ),
-        np.array([img.name for img in img_paths]),
-        fmt="%s",
-    )
     return
 
 
