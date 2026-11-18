@@ -8,17 +8,6 @@ from tqdm.contrib.concurrent import thread_map
 from transformers import AutoImageProcessor, AutoModel
 
 
-def get_prediction(img_path):
-    image = Image.open(img_path).convert("RGB")
-    pixel_values = image_processor(images=image, return_tensors="pt")["pixel_values"]
-    prediction = model(pixel_values)
-    # torch.Size([1, 327684]), vertices in fsaverage,
-    # first half is left hemisphere, second half right hemisphere
-    # print(prediction.shape)
-
-    return prediction.detach().numpy()
-
-
 @click.command()
 @click.option(
     "--sub_name",
@@ -32,13 +21,31 @@ def get_prediction(img_path):
     help="Stimulus directory.",
 )
 def main(subj_id, stimuli_dir):
-    image_processor = AutoImageProcessor.from_pretrained("facebook/dinov2-large")
+    image_processor = AutoImageProcessor.from_pretrained(
+        "facebook/dinov2-large",
+        revision="main",
+        local_files_only=True,
+    )
     # whole brain model, 327684 vertices in fsaverage
     model = AutoModel.from_pretrained(
         "huzey/brain-synthesizer",
+        revision="274fbb83069b7867f6e044052db7732da56679e7",
+        local_files_only=True,
         trust_remote_code=True,
         subject=subj_id,  # options: subj01, subj02, subj05, subj07
     )
+
+    def get_prediction(img_path):
+        image = Image.open(img_path).convert("RGB")
+        pixel_values = image_processor(images=image, return_tensors="pt")[
+            "pixel_values"
+        ]
+        prediction = model(pixel_values)
+        # torch.Size([1, 327684]), vertices in fsaverage,
+        # first half is left hemisphere, second half right hemisphere
+        # print(prediction.shape)
+
+        return prediction.detach().numpy()
 
     stimuli_dir = Path(stimuli_dir)
     # "/Users/emdupre/Desktop/UdeM-Projects/things-encode/cneuromod.things.stimuli"
@@ -46,7 +53,7 @@ def main(subj_id, stimuli_dir):
     output_dir = Path(stimuli_dir.parent, "stimuli.algonauts-predictions")
     output_dir.mkdir(exist_ok=True, parents=True)
 
-    img_paths = Path(stimuli_dir).rglob("*.jpg")
+    img_paths = list(Path(stimuli_dir).rglob("*.jpg"))[:10]
     predictions = thread_map(get_prediction, img_paths, max_workers=10)
 
     # Save embeddings and file names to .npy files
