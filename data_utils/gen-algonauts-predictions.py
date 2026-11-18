@@ -10,7 +10,7 @@ from transformers import AutoImageProcessor, AutoModel
 
 @click.command()
 @click.option(
-    "--sub_name",
+    "--subj_id",
     type=click.Choice(["subj01", "subj02", "subj05", "subj07"]),
     default="subj01",
     help="Subject name.",
