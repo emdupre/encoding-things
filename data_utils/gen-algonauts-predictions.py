@@ -20,11 +20,16 @@ from transformers import AutoImageProcessor, AutoModel
     default="/home/emdupre/links/projects/def-pbellec/emdupre/NSD/stimuli",
     help="Stimulus directory.",
 )
-def main(subj_id, stimuli_dir):
+@click.option(
+    "--output_dir",
+    default="/scratch/emdupre/NSD/stimuli.algonauts-predictions",
+    help="Output_directory",
+)
+def main(subj_id, stimuli_dir, output_dir):
     stimuli_dir = Path(stimuli_dir)
     # "/Users/emdupre/Desktop/UdeM-Projects/things-encode/cneuromod.things.stimuli"
     # "/Users/emdupre/Desktop/UdeM-Projects/nsd/stimuli"
-    output_dir = Path(stimuli_dir.parent, "stimuli.algonauts-predictions")
+    # output_dir = Path(stimuli_dir.parent, "stimuli.algonauts-predictions")
     output_dir.mkdir(exist_ok=True, parents=True)
 
     image_processor = AutoImageProcessor.from_pretrained(
