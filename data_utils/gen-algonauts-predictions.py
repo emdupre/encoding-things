@@ -30,6 +30,7 @@ def main(subj_id, stimuli_dir, output_dir):
     # "/Users/emdupre/Desktop/UdeM-Projects/things-encode/cneuromod.things.stimuli"
     # "/Users/emdupre/Desktop/UdeM-Projects/nsd/stimuli"
     # output_dir = Path(stimuli_dir.parent, "stimuli.algonauts-predictions")
+    output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True, parents=True)
 
     image_processor = AutoImageProcessor.from_pretrained(
