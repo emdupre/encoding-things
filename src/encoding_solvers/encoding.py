@@ -267,10 +267,12 @@ def main(
     if roi is None:
         roi = "wholebrain"
 
+    out_dir = Path(data_dir, f"encoding-results_{feat_model}")
+    if not out_dir.exists():
+        out_dir.mkdir(parents=True, exist_ok=True)
     out_file = Path(
-        data_dir,
-        "encoding-results",
-        f"{sub_name}_space-{space}_roi-{roi}_dataPercent-{data_percentage}_cv-{cv_strategy}_{feat_model}_{scoring_metric}_{solver}.pkl",
+        out_dir,
+        f"{sub_name}_space-{space}_roi-{roi}_dataPercent-{data_percentage}_cv-{cv_strategy}_{scoring_metric}_{solver}.pkl",
     )
 
     # if not out_file.is_file():
