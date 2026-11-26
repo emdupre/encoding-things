@@ -5,7 +5,7 @@ import numpy as np
 from himalaya.scoring import correlation_score
 from sklearn import base, metrics
 from sklearn.decomposition import TruncatedSVD
-from sklearn.linear_model import Ridge, RidgeCV
+from sklearn.linear_model import Ridge
 from sklearn.model_selection import (
     GroupKFold,
     KFold,
@@ -192,7 +192,9 @@ def ridgeCV_rrr(
 
         pl.fit(X_train, y_train)
         y_pred = pl.predict(X_test)
-        y_true = StandardScaler(with_mean=True, with_std=False).fit_transform(y_test)
+        y_true = StandardScaler(with_mean=True, with_std=False).fit_transform(
+            y_test
+        )
 
         if scoring is metrics.r2_score:
             score = metrics.r2_score(y_true, y_pred, multioutput="raw_values")
