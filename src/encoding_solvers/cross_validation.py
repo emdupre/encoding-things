@@ -44,7 +44,7 @@ def leave_one_THINGSplus_out(cat53_X, cat53_y):
 
 
 def define_groups(
-    cv_strategy, sub_name, data_dir, space="T1w", feature_embedding="clip"
+    cv_strategy, sub_name, data_dir, space="T1w", feat_model="clip"
 ):
     """
     Note that "category" will return `incl_labels` corresponding
@@ -61,7 +61,7 @@ def define_groups(
             data_dir,
             "encoding-inputs",
             space,
-            f"{feature_embedding}-embeddings",
+            f"{feat_model}-embeddings",
             f"{sub_name}_stim_labels.txt",
         ),
         dtype=np.str_,
@@ -71,7 +71,7 @@ def define_groups(
             data_dir,
             "encoding-inputs",
             space,
-            f"{feature_embedding}-embeddings",
+            f"{feat_model}-embeddings",
             f"{sub_name}_session_labels.txt",
         ),
         dtype=np.str_,

@@ -95,7 +95,7 @@ def explainable_variance(y_matrix, bias_correction=True, do_zscore=True):
     "are supported.",
 )
 @click.option(
-    "--feature_embedding",
+    "--feat_model",
     type=click.Choice(["clip", "clip-all-layers", "dino"]),
     default="clip",
     help="Feature embedding to use for encoding analysis. Must be either "
@@ -118,7 +118,7 @@ def main(
     cv_strategy,
     solver,
     scoring_metric,
-    feature_embedding,
+    feat_model,
     data_dir,
     data_percentage=1,
 ):
@@ -137,7 +137,7 @@ def main(
             data_dir,
             "encoding-inputs",
             space,
-            f"{feature_embedding}-embeddings",
+            f"{feat_model}-embeddings",
             f"{sub_name}_stim_features.npy",
         )
     )
@@ -148,7 +148,7 @@ def main(
                 data_dir,
                 "encoding-inputs",
                 space,
-                f"{feature_embedding}-embeddings",
+                f"{feat_model}-embeddings",
                 f"{sub_name}_space-{space}_roi-{roi}_brain_responses.npy",
             )
         )
@@ -164,7 +164,7 @@ def main(
 
     # ignore inner groups for now
     groups, _ = define_groups(
-        cv_strategy, sub_name, data_dir, space, feature_embedding
+        cv_strategy, sub_name, data_dir, space, feat_model
     )
 
     # Apply data_percentage, subset data if data_percentage < 1. This assumes
@@ -270,7 +270,7 @@ def main(
     out_file = Path(
         data_dir,
         "encoding-results",
-        f"{sub_name}_space-{space}_roi-{roi}_dataPercent-{data_percentage}_cv-{cv_strategy}_{feature_embedding}_{scoring_metric}_{solver}.pkl",
+        f"{sub_name}_space-{space}_roi-{roi}_dataPercent-{data_percentage}_cv-{cv_strategy}_{feat_model}_{scoring_metric}_{solver}.pkl",
     )
 
     # if not out_file.is_file():
