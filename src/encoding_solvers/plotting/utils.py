@@ -4,6 +4,9 @@ from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
+from matplotlib.ticker import MaxNLocator
+
+Q = 99
 
 
 def _get_solver_colors(solver):
@@ -12,6 +15,7 @@ def _get_solver_colors(solver):
         "rrr": "mediumorchid",
         "ompCV": "cornflowerblue",
         "ompCV_ridge": "mediumaquamarine",
+        "mlp": "teal",
     }
 
     return solver_colors[solver]
@@ -23,8 +27,51 @@ def _get_solver_names(solver):
         "rrr": "Reduced Rank Ridge",
         "ompCV": "Orthogonal Matching Pursuit (OMP)",
         "ompCV_ridge": "OMP-refined Ridge",
+        "mlp": "Multi-layer Perceptron",
     }
     return solver_plot_names[solver]
+
+
+def _set_auto_yaxis(axes, all_values, scale="auto", log_ratio=10):
+    """Set a shared y scale and limits from the data.
+
+    scale: 'auto' | 'log' | 'linear'
+    'auto' uses log if max/min >= log_ratio (and all values > 0).
+    """
+    vmin, vmax = np.min(all_values), np.max(all_values)
+
+    if scale == "auto":
+        use_log = vmin > 0 and (vmax / vmin) >= log_ratio
+    else:
+        use_log = scale == "log"
+
+    ax = axes[0]  # sharey=True, so one axis is enough
+    if use_log:
+        ax.set_yscale("log")
+        pad = 10**0.3  # about half a decade of padding
+        ax.set_ylim(vmin / pad, vmax * pad)
+    else:
+        ax.set_yscale("linear")
+        pad = max(1, 0.1 * (vmax - vmin))
+        ax.set_ylim(vmin - pad, vmax + pad)
+        ax.yaxis.set_major_locator(
+            MaxNLocator(integer=True)
+        )  # ranks are integers
+
+
+def extract_solver_params(reg_params_all, solver="rrr"):
+    """Reshape reg_params_all[roi][percent][solver] -> {roi: {percent: {solver: values}}}.
+
+    Percents where the solver is missing are skipped.
+    """
+    return {
+        roi: {
+            pct_key: {solver: params[solver]}
+            for pct_key, params in percents.items()
+            if solver in params
+        }
+        for roi, percents in reg_params_all.items()
+    }
 
 
 def load_pkl_keys(results_pkl):
@@ -103,6 +150,7 @@ def create_results_dict(
 
     results_pkl = Path(
         data_path,
+        # "encoding-results",
         f"{sub_name}_space-T1w_roi-{roi}_dataPercent-{data_percent}_cv-kfold_{metric}_{solver}.pkl",
     )
     (
@@ -160,7 +208,7 @@ def gather_test_scores(
     highest_scores: dict
     std_scores: dict
     """
-    solvers = ["sklearn", "ompCV", "rrr", "ompCV_ridge"]  # "himalaya",
+    solvers = ["sklearn", "ompCV", "rrr", "ompCV_ridge", "mlp"]  # "himalaya",
     scores = defaultdict()
     highest_scores = defaultdict()
     std_scores = defaultdict()
@@ -173,7 +221,7 @@ def gather_test_scores(
             )
             test_scores = res_dict["test_scores"]
             highest_test_scores, std_test_scores = compute_quantile_and_std(
-                test_scores, q=0.9, ddof=1
+                test_scores, q=float(f"0.{Q}"), ddof=1
             )
 
             scores[solver] = test_scores
@@ -190,4 +238,4 @@ def gather_test_scores(
 
     expl_var = res_dict["explainable_variance"]
 
-    return scores, highest_scores, std_scores, expl_var, reg_params
+    return scores, highest_scores, std_scores, reg_params, expl_var
