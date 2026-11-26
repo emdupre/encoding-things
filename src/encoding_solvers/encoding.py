@@ -42,9 +42,9 @@ def explainable_variance(y_matrix, bias_correction=True, do_zscore=True):
     """
     n_repeats = 3  # NOTE : Hard-coded for THINGS dataset
     n_stimuli, n_voxels = y_matrix.shape
-    data = y_matrix.reshape((n_stimuli // n_repeats, n_repeats, n_voxels)).swapaxes(
-        0, 1
-    )
+    data = y_matrix.reshape(
+        (n_stimuli // n_repeats, n_repeats, n_voxels)
+    ).swapaxes(0, 1)
 
     if do_zscore:
         data = scipy.stats.zscore(data, axis=1)
@@ -69,7 +69,9 @@ def explainable_variance(y_matrix, bias_correction=True, do_zscore=True):
 @click.option(
     "--roi",
     default=None,
-    type=click.Choice([None, "EBA", "FFA", "OFA", "pSTS", "MPA", "OPA", "PPA"]),
+    type=click.Choice(
+        [None, "EBA", "FFA", "OFA", "pSTS", "MPA", "OPA", "PPA"]
+    ),
     help="Region-of-interest",
 )
 @click.option(
@@ -93,6 +95,13 @@ def explainable_variance(y_matrix, bias_correction=True, do_zscore=True):
     "are supported.",
 )
 @click.option(
+    "--feature_embedding",
+    type=click.Choice(["clip", "clip-all-layers", "dino"]),
+    default="clip",
+    help="Feature embedding to use for encoding analysis. Must be either "
+    "'clip', 'clip-all-layers', or 'dino'.",
+)
+@click.option(
     "--data_dir",
     default="/home/emdupre/links/projects/rrg-pbellec/emdupre/things.betas",
     help="Data directory.",
@@ -104,7 +113,14 @@ def explainable_variance(y_matrix, bias_correction=True, do_zscore=True):
     help="Percentage of data to include in analysis. Must be between 0 and 1.",
 )
 def main(
-    sub_name, roi, cv_strategy, solver, scoring_metric, data_dir, data_percentage=1
+    sub_name,
+    roi,
+    cv_strategy,
+    solver,
+    scoring_metric,
+    feature_embedding,
+    data_dir,
+    data_percentage=1,
 ):
     """ """
     space = "T1w"
@@ -121,6 +137,7 @@ def main(
             data_dir,
             "encoding-inputs",
             space,
+            f"{feature_embedding}-embeddings",
             f"{sub_name}_stim_features.npy",
         )
     )
@@ -131,6 +148,7 @@ def main(
                 data_dir,
                 "encoding-inputs",
                 space,
+                f"{feature_embedding}-embeddings",
                 f"{sub_name}_space-{space}_roi-{roi}_brain_responses.npy",
             )
         )
@@ -145,7 +163,9 @@ def main(
         )
 
     # ignore inner groups for now
-    groups, _ = define_groups(cv_strategy, sub_name, data_dir)
+    groups, _ = define_groups(
+        cv_strategy, sub_name, data_dir, space, feature_embedding
+    )
 
     # Apply data_percentage, subset data if data_percentage < 1. This assumes
     # that the data is ordered by stimulus, and that each stimulus repeated
@@ -250,7 +270,7 @@ def main(
     out_file = Path(
         data_dir,
         "encoding-results",
-        f"{sub_name}_space-{space}_roi-{roi}_dataPercent-{data_percentage}_cv-{cv_strategy}_{scoring_metric}_{solver}.pkl",
+        f"{sub_name}_space-{space}_roi-{roi}_dataPercent-{data_percentage}_cv-{cv_strategy}_{feature_embedding}_{scoring_metric}_{solver}.pkl",
     )
 
     # if not out_file.is_file():
