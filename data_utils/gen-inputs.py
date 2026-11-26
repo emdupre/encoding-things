@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import click
@@ -15,7 +16,7 @@ def _load_stim_arrays(data_dir, model):
     ----------
     data_dir : str
     model : str
-        Name of the feature model, e.g. "clip" or "dino".
+        Name of the feature model, e.g. "clip", "clip-all-layers" or "dino".
     """
     feats_dir = Path(data_dir, f"{model}-features")
     feats = np.load(feats_dir / "features.npy")
@@ -39,17 +40,23 @@ def _load_brain_arrays(sub_name, roi, space, data_dir):
 
     beta_h5 = h5py.File(Path(data_dir, "betas", beta_fname), "r")
     mask = nib.nifti1.Nifti1Image(
-        np.array(beta_h5["mask_array"]), affine=np.array(beta_h5["mask_affine"]),
+        np.array(beta_h5["mask_array"]),
+        affine=np.array(beta_h5["mask_affine"]),
     )
 
     if roi is not None:
-        roi_fname = f"{sub_name}_task-floc_space-{space}*_roi-{roi}_*_desc-smooth_mask.nii.gz"
+        if roi in ["V1", "V2"]:
+            roi_fname = f"{sub_name}_task-retinotopy_space-{space}_*-{roi}_desc-nn_mask.nii.gz"
+        else:
+            roi_fname = f"{sub_name}_task-floc_space-{space}*_roi-{roi}_*_desc-smooth_mask.nii.gz"
         try:
             roi_nii = nib.load(
                 next(Path(data_dir, "rois", sub_name).glob(roi_fname))
             )  # Shape (76, 90, 71)
         except StopIteration:
-            raise FileNotFoundError(f"Could not find ROI file matching {roi_fname}")
+            raise FileNotFoundError(
+                f"Could not find ROI file matching {roi_fname}"
+            )
 
         # plotting.view_img(roi_nii, bg_img=unmask_beta)
         # FFA ROI raises concern on visual inspection
@@ -241,14 +248,14 @@ def gen_inputs(sub_name, roi, space, data_dir, feat_model):
 @click.option(
     "--feat_model",
     default="clip",
-    help="Model used to extract image features. Must be in ['clip', 'dino']",
+    help="Model used to extract image features. Must be in ['clip', 'clip-all-layers', 'dino']",
 )
 def main(sub_name, roi, space, data_dir, feat_model):
     """
     Create trialwise inputs for voxelwise encoding models on THINGS data using
     existing CLIP embeddings (previously generated using thingsvision).
     """
-    rois = [None, "EBA", "FFA", "OFA", "pSTS", "MPA", "OPA", "PPA"]
+    rois = [None, "EBA", "FFA", "OFA", "pSTS", "MPA", "OPA", "PPA", "V1", "V2"]
     if roi not in rois:
         err_msg = f"Unrecognized ROI {roi}"
         raise ValueError(err_msg)
@@ -262,7 +269,7 @@ def main(sub_name, roi, space, data_dir, feat_model):
         err_msg = f"Unrecognized space {space}"
         raise ValueError(err_msg)
 
-    if feat_model not in ["clip", "dino"]:
+    if feat_model not in ["clip", "clip-all-layers", "dino"]:
         err_msg = f"Unrecognized feature model {feat_model}"
         raise ValueError(err_msg)
 

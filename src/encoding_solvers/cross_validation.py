@@ -43,7 +43,9 @@ def leave_one_THINGSplus_out(cat53_X, cat53_y):
     return X, y_idx, groups
 
 
-def define_groups(cv_strategy, sub_name, data_dir, space="T1w"):
+def define_groups(
+    cv_strategy, sub_name, data_dir, space="T1w", feat_model="clip"
+):
     """
     Note that "category" will return `incl_labels` corresponding
     to image categories (e.g., 'acorn')
@@ -55,11 +57,23 @@ def define_groups(cv_strategy, sub_name, data_dir, space="T1w"):
     """
 
     groups = np.loadtxt(
-        Path(data_dir, "encoding-inputs", space, f"{sub_name}_stim_labels.txt"),
+        Path(
+            data_dir,
+            "encoding-inputs",
+            space,
+            f"{feat_model}-embeddings",
+            f"{sub_name}_stim_labels.txt",
+        ),
         dtype=np.str_,
     )
     inner_groups = np.loadtxt(
-        Path(data_dir, "encoding-inputs", space, f"{sub_name}_session_labels.txt"),
+        Path(
+            data_dir,
+            "encoding-inputs",
+            space,
+            f"{feat_model}-embeddings",
+            f"{sub_name}_session_labels.txt",
+        ),
         dtype=np.str_,
     )
 
